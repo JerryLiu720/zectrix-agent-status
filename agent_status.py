@@ -456,8 +456,11 @@ def render(out, page=0):
     for i in range(len(PAGES)):
         cx = 16 + i * 14
         d.ellipse([cx, HT - 22, cx + 7, HT - 15], fill=0 if i == page else 200)
-    hint = f"v{VERSION} · " + ("示例数据 · " if DEMO else "") + "↑↓ 翻页"
-    d.text((W - 14 - d.textlength(hint, font=font(11)), HT - 24), hint, font=font(11), fill=110)
+    hint = f"v{VERSION} · " + ("示例数据 · " if DEMO else "") + "↑↓翻页 确认刷新"
+    hf = font(11)
+    while d.textlength(hint, font=hf) > W - 90 and hf.size > 8:
+        hf = font(hf.size - 1)
+    d.text((W - 14 - d.textlength(hint, font=hf), HT - 24), hint, font=hf, fill=110)
 
     import io
     global _last_png
