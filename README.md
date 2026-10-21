@@ -144,7 +144,14 @@ cargo run --example watch -- <IP> status.png gray16
 
 > **默认按"手动开关"使用**：`stop.sh` 会把 LaunchAgent 移到 `~/Library/LaunchAgents/disabled/`，
 > 所以下次登录不会自己起来；`start.sh` 用 nohup 直接拉起进程，同样不会恢复自启。
-> 想恢复开机自启：重新运行一次 `./install.sh <设备IP>`。
+> 想恢复开机自启：运行一次 `./scripts/start.sh`（它会重新注册 LaunchAgent）。
+
+**最省事的用法**：安装时会（如果存在 `~/Desktop`）在桌面生成两个双击快捷方式：
+
+- **开启状态屏.command** → 启动并恢复开机自启
+- **关闭状态屏.command** → 停止并禁用开机自启（重启电脑也不会自己起来）
+
+双击即用，不用开终端敲命令。
 
 停止后不会影响其他软件；这三个服务只做两件事：读本机状态文件渲染 PNG、通过局域网推给 NOTE4（不联网上传任何数据）。
 
