@@ -131,6 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut last_fp: u64 = 0;
         let mut last_push = Instant::now() - Duration::from_secs(600);
         let mut pending = false;
+        let mut pending_since: Option<Instant> = None;
         let mut last_key: Option<(Key, Instant)> = None;
         let mut last_ev: Option<Instant> = None;   // 诊断：事件间隔
         let mut last_hb = Instant::now() - Duration::from_secs(11);
@@ -167,6 +168,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     if pending {
+                        if let Some(ps) = pending_since {
+                            if ps.elapsed() > Duration::from_secs(6) {
+                                println!("⚠️ 按键后 6 秒未产生新图（渲染器可能未运行）");
+                                pending_since = None;
+                            }
+                        }
                         // 连按合并：最后一次按键后静默 300ms 再推
                         if let Some((_, lt)) = last_key {
                             if lt.elapsed() < Duration::from_millis(300) {
@@ -192,12 +199,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     last_fp = fp;
                                     last_push = Instant::now();
                                     pending = false;
+                                    pending_since = None;
                                 }
                                 Err(e) => { println!("刷新失败: {e}"); break; }
                             }
-                        } else if pending {
-                            pending = false;
                         }
+                        // 注意：图片还没更新时不要清 pending，
+                        // 否则渲染延迟 0.2–0.5s 期间会把"待推送"的意图丢掉。
                     }
                 }
                 maybe_ev = rx.recv() => {
@@ -234,6 +242,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let _ = fs::write(&state_path, page.to_string());
                             println!("按键 {key:?} → 第 {} 页", page + 1);
                             pending = true;
+                            pending_since = Some(Instant::now());
                         }
                         Some(Event::Disconnected { .. }) => { println!("设备已断开，准备重连…"); break; }
                         Some(_) => {}
