@@ -102,4 +102,4 @@ MIT。SDK 与协议来自 [Zectrix 本地推送 SDK](https://github.com/itopinio
 
 ---
 
-**源码地址**：https://github.com/JerryLiu720/JerryLiu720.github.io/tree/zectrix-agent-status
+**源码地址**：https://github.com/JerryLiu720/zectrix-agent-status
