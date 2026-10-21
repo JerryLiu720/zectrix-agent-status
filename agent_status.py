@@ -568,6 +568,8 @@ if __name__ == "__main__":
 
     if a.daemon:
         claim_single_instance()
+        # 页码响应优先：无论传什么间隔，最多 0.5 秒检查一次（渲染内容不变则不落盘）
+        delay = min(max(a.interval, 0.2), 0.5)
         while True:
             try:
                 try:
@@ -578,7 +580,7 @@ if __name__ == "__main__":
                 render(a.out, read_page() if a.page is None else a.page)
             except Exception as e:
                 print("render error:", e, flush=True)
-            time.sleep(a.interval)
+            time.sleep(delay)
     else:
         p = read_page() if a.page is None else a.page
         print(render(a.out, p), os.path.getsize(a.out), "B")

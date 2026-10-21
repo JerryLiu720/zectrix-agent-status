@@ -100,6 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let mut last_hb = Instant::now();
         let mut last_bat = Instant::now();
+        let mut pending = false;   // 有按键待推送
         let mut last_fp: u64 = 0;
         let mut last_push = Instant::now() - Duration::from_secs(600);
 
@@ -119,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 内层：接收按键 + 兜底刷新（数据类变化每 5 分钟最多一次）
         loop {
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_secs(2)) => {
+                _ = tokio::time::sleep(Duration::from_millis(300)) => {
                     // 每 10 秒心跳一次（不碰设备，只写文件）
                     if last_hb.elapsed() >= Duration::from_secs(10) {
                         let _ = fs::write(&hb_path, format!("{}", std::time::SystemTime::now()
@@ -137,14 +138,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // 对话进行中 60 秒刷一次（时间保持新鲜），空闲 5 分钟
                     let active = fs::read_to_string(&act_path).map(|s| s.trim() == "1").unwrap_or(false);
                     let interval = if active { 60 } else { 300 };
-                    if last_push.elapsed() < Duration::from_secs(interval) {
+                    if !pending && last_push.elapsed() < Duration::from_secs(interval) {
                         continue;
                     }
                     if let Ok(png) = fs::read(&path) {
                         let fp = fingerprint(&png);
                         if fp != last_fp {
                             match device.show_with_format(&png, parse_format(&fmt_name)?).await {
-                                Ok(_) => { println!("已自动刷新"); last_fp = fp; last_push = Instant::now(); }
+                                Ok(_) => {
+                                    println!("已刷新{}", if pending { "（按键）" } else { "" });
+                                    last_fp = fp; last_push = Instant::now(); pending = false;
+                                }
                                 Err(e) => { println!("刷新失败: {e}"); break; }
                             }
                         }
@@ -179,29 +183,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let _ = fs::write(&state_path, page.to_string());
                                 println!("页面 -> {}", page);
 
-                                // 原地等渲染器产出新图，然后立刻推送（最多 6 秒）
-                                let mut done = false;
-                                for _ in 0..30 {
-                                    tokio::time::sleep(Duration::from_millis(200)).await;
-                                    if let Ok(png) = fs::read(&path) {
-                                        let fp = fingerprint(&png);
-                                        if fp != last_fp {
-                                            match device.show_with_format(&png, parse_format(&fmt_name)?).await {
-                                                Ok(_) => {
-                                                    println!("已刷新");
-                                                    last_fp = fp;
-                                                    last_push = Instant::now();
-                                                    done = true;
-                                                }
-                                                Err(e) => println!("刷新失败: {e}"),
-                                            }
-                                            break;
-                                        }
-                                    }
-                                }
-                                if !done {
-                                    println!("第 {} 页未产生新图（渲染器可能未运行）", page);
-                                }
+                                // 不阻塞：交给 300ms 的 tick 检测新图后立即推送，
+                                // 这样连续按键不会丢，也不会出现"按两次才翻一页"
+                                pending = true;
                             }
                         }
                         Ok(Some(Event::Disconnected { .. })) => { println!("设备已断开，准备重连…"); break; }
