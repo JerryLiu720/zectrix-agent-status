@@ -11,7 +11,7 @@ for a in "$@"; do
   case "$a" in
     --mode=login|login)     MODE="login" ;;
     --mode=manual|manual)   MODE="manual" ;;
-    --mode=*)               echo "未知模式：$a（可选 login / manual）"; exit 1 ;;
+    --mode=*)               echo "未知模式：${a}（可选 login / manual）"; exit 1 ;;
   esac
 done
 [ -z "$IP" ] && { echo "用法: ./install.sh <设备IP> [间隔秒]"; echo "提示: 设备 IP 可在设备「设置 → 网络」中查看"; exit 1; }
@@ -143,7 +143,7 @@ if [ -f "$CARGO_CFG.zectrix.bak" ]; then
 elif [ "$MIRROR_OK" = 1 ]; then
   rm -f "$CARGO_CFG"
 fi
-[ "$BUILD_RC" -ne 0 ] && { echo "编译失败（cargo exit $BUILD_RC）"; exit 1; }
+[ "$BUILD_RC" -ne 0 ] && { echo "编译失败（cargo exit ${BUILD_RC}）"; exit 1; }
 mkdir -p "$INSTALL_DIR/bin"
 install -m 755 "$SDK_DIR/target/release/examples/watch" "$INSTALL_DIR/bin/zectrix-watch"
 WATCH_BIN="$INSTALL_DIR/bin/zectrix-watch"
@@ -202,7 +202,7 @@ cat > "$LA/com.zectrix.agentstatus.logrotate.plist" <<PLIST
 </dict></plist>
 PLIST
 
-echo "==> [6/6] 启动服务（模式：$MODE）"
+echo "==> [6/6] 启动服务（模式：${MODE}）"
 if [ "$MODE" = "manual" ]; then
   # 手动模式：把 plist 移到 disabled/，不注册开机自启；用 nohup 起当前进程
   mkdir -p "$LA/disabled"
