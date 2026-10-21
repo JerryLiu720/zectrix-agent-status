@@ -489,6 +489,21 @@ def read_page():
             continue
     return 0
 
+def claim_single_instance():
+    """同一目录只允许一个 daemon：避免重复进程抢设备"""
+    lock = os.path.join(BASE, ".daemon.lock")
+    try:
+        pid = int(open(lock).read().strip())
+        if pid != os.getpid():
+            os.kill(pid, 0)          # 进程还在 → 直接退出
+            print(f"已有 daemon 在运行（pid {pid}），本次退出")
+            raise SystemExit(0)
+    except SystemExit:
+        raise
+    except Exception:
+        pass
+    open(lock, "w").write(str(os.getpid()))
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(BASE, "status.png"))
@@ -517,10 +532,12 @@ if __name__ == "__main__":
         raise SystemExit(0 if ok else 1)
 
     if a.daemon:
+        claim_single_instance()
         while True:
             try:
                 try:
                     open(os.path.join(BASE, "active.txt"), "w").write("1" if turn_state()[0] else "0")
+                    open(os.path.join(BASE, "pages.txt"), "w").write(str(len(PAGES)))
                 except Exception:
                     pass
                 render(a.out, read_page() if a.page is None else a.page)

@@ -75,7 +75,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hb_path = dir.join("conn.txt");      // 心跳：渲染器据此判断"连接状态"
     let act_path = dir.join("active.txt");   // 渲染器写的"是否在对话中"
     let bat_path = dir.join("battery.txt"); // 电量：百分比,充电中(1/0)
-    let pages: i32 = 4;
+    // 页数由渲染器写入 pages.txt（默认 4），避免两边写死不同步
+    let pages_path = dir.join("pages.txt");
+    let pages: i32 = fs::read_to_string(&pages_path)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .filter(|n: &i32| *n > 0 && *n <= 12)
+        .unwrap_or(4);
     let mut page: i32 = fs::read_to_string(&state_path)
         .ok()
         .and_then(|s| s.trim().parse().ok())
@@ -148,8 +154,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     match ev {
                         Ok(Some(Event::Key { key, action })) => {
                             println!("按键 {key:?}: {action:?}");
-                            // 确认键 = 立即重推当前页
-                            if matches!(action, KeyAction::Short) && matches!(key, Key::Confirm) {
+                            // 确认键（短按/长按）= 立即重推当前页
+                            if matches!(key, Key::Confirm) {
                                 if let Ok(png) = fs::read(&path) {
                                     match device.show_with_format(&png, parse_format(&fmt_name)?).await {
                                         Ok(_) => {
@@ -162,12 +168,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 continue;
                             }
-                            if matches!(action, KeyAction::Short) {
-                                match key {
-                                    Key::Up => page = (page + pages - 1) % pages,
-                                    Key::Down => page = (page + 1) % pages,
-                                    Key::Confirm => unreachable!(),
-                                }
+                            match (action, key) {
+                                (KeyAction::Short, Key::Up) => page = (page + pages - 1) % pages,
+                                (KeyAction::Short, Key::Down) => page = (page + 1) % pages,
+                                (KeyAction::Long, Key::Up) => page = 0,            // 长按 ↑ 回首页
+                                (KeyAction::Long, Key::Down) => page = pages - 1,  // 长按 ↓ 到末页
+                                _ => continue,
+                            }
+                            {
                                 let _ = fs::write(&state_path, page.to_string());
                                 println!("页面 -> {}", page);
 
