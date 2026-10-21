@@ -40,8 +40,9 @@ fi
 command -v cargo >/dev/null || { echo "Rust 安装失败"; exit 1; }
 
 echo "==> [2/6] 准备工作目录 $INSTALL_DIR"
-mkdir -p "$INSTALL_DIR/logs" "$LA"
+mkdir -p "$INSTALL_DIR/logs" "$INSTALL_DIR/bin" "$LA"
 cp -f "$APP_DIR/agent_status.py" "$INSTALL_DIR/agent_status.py"
+install -m 755 "$APP_DIR/scripts/rotate_logs.sh" "$INSTALL_DIR/bin/rotate-logs.sh"
 echo 0 > "$INSTALL_DIR/ui_state.txt"
 
 echo "==> [3/6] 获取 Zectrix SDK（github.com 不通时走 codeload）"
@@ -103,8 +104,25 @@ cat > "$LA/com.zectrix.agentstatus.watch.plist" <<PLIST
 </dict></plist>
 PLIST
 
+cat > "$LA/com.zectrix.agentstatus.logrotate.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.zectrix.agentstatus.logrotate</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string><string>$INSTALL_DIR/bin/rotate-logs.sh</string>
+  </array>
+  <key>StartCalendarInterval</key><dict>
+    <key>Hour</key><integer>4</integer><key>Minute</key><integer>0</integer>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>$INSTALL_DIR/logs/rotate.out.log</string>
+  <key>StandardErrorPath</key><string>$INSTALL_DIR/logs/rotate.err.log</string>
+</dict></plist>
+PLIST
+
 echo "==> [6/6] 启动服务"
-for L in com.zectrix.agentstatus.daemon com.zectrix.agentstatus.watch; do
+for L in com.zectrix.agentstatus.daemon com.zectrix.agentstatus.watch com.zectrix.agentstatus.logrotate; do
   launchctl bootout "gui/$UID_N/$L" 2>/dev/null || true
   launchctl bootstrap "gui/$UID_N" "$LA/$L.plist"
 done

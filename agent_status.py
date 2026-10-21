@@ -228,6 +228,31 @@ def today_cost(rate=7.1):
     except Exception:
         return 0.0, 0.0
 
+def daily_spend(total_str):
+    """今日花费 = 当日余额下降量（与 DeepSeek 后台口径一致）
+    首次运行当天只能从启动时刻开始计，返回 (金额, 起始时间戳)"""
+    try:
+        bal = float(total_str)
+    except Exception:
+        return None, None
+    path = os.path.join(BASE, ".balance_daily.json")
+    today = datetime.date.today().isoformat()
+    try:
+        d = json.load(open(path))
+    except Exception:
+        d = {}
+    if d.get("date") != today:
+        d = {"date": today, "start": bal, "since": time.time()}
+    elif bal > float(d.get("start", bal)) + 0.005:      # 充值 → 重置基线
+        d = {"date": today, "start": bal, "since": time.time()}
+    else:
+        d.setdefault("since", time.time())
+    try:
+        json.dump(d, open(path, "w"))
+    except Exception:
+        pass
+    return max(0.0, float(d["start"]) - bal), d.get("since")
+
 def week_counts():
     """最近 7 天每天的消息数（含今天），用于柱状图"""
     try:
@@ -307,8 +332,8 @@ def render(out, page=0):
     if page == 0:
         # 仪表盘：当前进度 → 模型 → 花费/余额 → 最近消息
         active, elapsed = turn_state()
-        usd, cny = today_cost()
         bal, granted, bage = balance()
+        cny, since = daily_spend(bal)
         m = last_reply()
 
         # 当前进度（最上面）：真实租约 → 处理中 + 本轮耗时
@@ -351,9 +376,13 @@ def render(out, page=0):
         d.line([16, 142, W - 16, 142], fill=210)
 
         # 花费 / 余额
-        d.text((16, 150), "今日花费", font=font(11), fill=125)
-        d.text((16, 166), f"¥{cny:,.2f}", font=font(29), fill=0)
-        d.text((16, 204), f"≈ ${usd:.2f}", font=font(10, bold=False), fill=125)
+        slab = "今日花费"
+        if since:
+            midnight = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+            if since - midnight > 600:      # 当天中途启动 → 标明起算时间
+                slab += " · " + datetime.datetime.fromtimestamp(since).strftime("%H:%M") + " 起"
+        d.text((16, 150), slab, font=font(11, bold=False), fill=125)
+        d.text((16, 166), (f"¥{cny:,.2f}" if cny is not None else "—"), font=font(29), fill=0)
 
         bx = 232
         blabel = "账户余额"
@@ -464,6 +493,7 @@ def enable_demo():
     now = time.time()
     model_name = lambda: "deepseek-v4"
     today_cost = lambda rate=7.1: (0.86, 0.86 * rate)
+    daily_spend = lambda s: (6.12, time.time() - 3600)
     balance = lambda ttl=600: ("42.00", "12.00", 180.0)
     count_facts = lambda: 186
     count_skills = lambda: 34
