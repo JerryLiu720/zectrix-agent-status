@@ -275,7 +275,7 @@ def render(out, page=0):
     # 右上角：电量图标（实心比例 + 百分比），从右往左排
     pct, charging = battery()
     icon_w, icon_h, iy = 24, 10, 11
-    ix = W - 14 - icon_w
+    ix = W - 9 - icon_w
     d.rounded_rectangle([ix, iy, ix + icon_w - 5, iy + icon_h], radius=2, outline=255, width=1)
     d.rounded_rectangle([ix + icon_w - 4, iy + 4, ix + icon_w - 2, iy + icon_h - 4], radius=1, fill=255)
     if pct is not None:
