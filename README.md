@@ -70,8 +70,14 @@ git clone 后执行 ./install.sh <设备IP>；完成后确认 NOTE4 显示第 1 
 ## 安装（手动 3 步）
 
 ```bash
-./install.sh 192.168.1.100      # 设备需与电脑同一 Wi-Fi，并开启「待机保持 Wi-Fi」
+# 默认：开机自启（适合评委/长期挂机）
+./install.sh 192.168.1.100
+
+# 手动模式：不自启，需要时再开（适合只在特定时间用）
+./install.sh 192.168.1.100 --mode=manual
 ```
+
+设备需与电脑同一 Wi-Fi，并开启「待机保持 Wi-Fi」。
 
 `install.sh` 会：装 cmake（pip，不走 brew）→ 拉取 Zectrix SDK（codeload 绕过 github.com）→ 编译 `watch` → 安装三个 LaunchAgent（渲染 daemon、设备推送、日志轮转）。
 

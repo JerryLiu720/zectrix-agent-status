@@ -5,6 +5,15 @@ set -euo pipefail
 
 IP="${1:-}"
 INTERVAL="${2:-3}"
+MODE="login"          # login=开机自启；manual=手动开关（回家才打开）
+
+for a in "$@"; do
+  case "$a" in
+    --mode=login|login)     MODE="login" ;;
+    --mode=manual|manual)   MODE="manual" ;;
+    --mode=*)               echo "未知模式：$a（可选 login / manual）"; exit 1 ;;
+  esac
+done
 [ -z "$IP" ] && { echo "用法: ./install.sh <设备IP> [间隔秒]"; echo "提示: 设备 IP 可在设备「设置 → 网络」中查看"; exit 1; }
 
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -59,6 +68,9 @@ echo "==> [2/6] 准备工作目录 $INSTALL_DIR"
 mkdir -p "$INSTALL_DIR/logs" "$INSTALL_DIR/bin" "$LA"
 cp -f "$APP_DIR/agent_status.py" "$INSTALL_DIR/agent_status.py"
 install -m 755 "$APP_DIR/scripts/rotate_logs.sh" "$INSTALL_DIR/bin/rotate-logs.sh"
+mkdir -p "$INSTALL_DIR/scripts"
+cp -f "$APP_DIR"/scripts/*.sh "$INSTALL_DIR/scripts/" 2>/dev/null || true
+chmod +x "$INSTALL_DIR"/scripts/*.sh 2>/dev/null || true
 echo 0 > "$INSTALL_DIR/ui_state.txt"
 echo "IP=$IP" > "$INSTALL_DIR/config.txt"
 
@@ -146,11 +158,27 @@ cat > "$LA/com.zectrix.agentstatus.logrotate.plist" <<PLIST
 </dict></plist>
 PLIST
 
-echo "==> [6/6] 启动服务"
-for L in com.zectrix.agentstatus.daemon com.zectrix.agentstatus.watch com.zectrix.agentstatus.logrotate; do
-  launchctl bootout "gui/$UID_N/$L" 2>/dev/null || true
-  launchctl bootstrap "gui/$UID_N" "$LA/$L.plist"
-done
+echo "==> [6/6] 启动服务（模式：$MODE）"
+if [ "$MODE" = "manual" ]; then
+  # 手动模式：把 plist 移到 disabled/，不注册开机自启；用 nohup 起当前进程
+  mkdir -p "$LA/disabled"
+  for L in com.zectrix.agentstatus.daemon com.zectrix.agentstatus.watch com.zectrix.agentstatus.logrotate; do
+    [ -f "$LA/$L.plist" ] && mv -f "$LA/$L.plist" "$LA/disabled/"
+  done
+  nohup "$PY" "$INSTALL_DIR/agent_status.py" --daemon --interval "$INTERVAL" \
+      >> "$INSTALL_DIR/logs/status-daemon.log" 2>&1 &
+  sleep 1
+  nohup "$WATCH_BIN" "$IP" "$INSTALL_DIR/status.png" gray16 \
+      >> "$INSTALL_DIR/logs/watch.log" 2>&1 &
+  echo "    手动模式：已启动，本次登录不再自动启动"
+  echo "    开启：$INSTALL_DIR/scripts/start.sh    关闭：$INSTALL_DIR/scripts/stop.sh"
+else
+  for L in com.zectrix.agentstatus.daemon com.zectrix.agentstatus.watch com.zectrix.agentstatus.logrotate; do
+    launchctl bootout "gui/$UID_N/$L" 2>/dev/null || true
+    launchctl bootstrap "gui/$UID_N" "$LA/$L.plist"
+  done
+  echo "    开机自启模式：已注册 LaunchAgent"
+fi
 
 sleep 4
 echo
