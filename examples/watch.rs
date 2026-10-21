@@ -101,6 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut last_hb = Instant::now();
         let mut last_bat = Instant::now();
         let mut pending = false;   // 有按键待推送
+        let mut last_key: Option<(Key, Instant)> = None;
         let mut last_fp: u64 = 0;
         let mut last_push = Instant::now() - Duration::from_secs(600);
 
@@ -138,6 +139,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // 对话进行中 60 秒刷一次（时间保持新鲜），空闲 5 分钟
                     let active = fs::read_to_string(&act_path).map(|s| s.trim() == "1").unwrap_or(false);
                     let interval = if active { 60 } else { 300 };
+                    // 连按合并：最后一次按键后静默 300ms 再推，避免刷中间页
+                    if pending {
+                        if let Some((_, lt)) = last_key {
+                            if lt.elapsed() < Duration::from_millis(300) {
+                                continue;
+                            }
+                        }
+                    }
                     if !pending && last_push.elapsed() < Duration::from_secs(interval) {
                         continue;
                     }
@@ -172,13 +181,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 continue;
                             }
+                            // 只响应短按；长按会产生 Long 事件，若映射成跳页会像"乱跳"，这里直接忽略
                             match (action, key) {
                                 (KeyAction::Short, Key::Up) => page = (page + pages - 1) % pages,
                                 (KeyAction::Short, Key::Down) => page = (page + 1) % pages,
-                                (KeyAction::Long, Key::Up) => page = 0,            // 长按 ↑ 回首页
-                                (KeyAction::Long, Key::Down) => page = pages - 1,  // 长按 ↓ 到末页
                                 _ => continue,
                             }
+                            // 去抖：同方向 250ms 内的重复事件视为一次（按键抖动/长按重复）
+                            if let Some((lk, lt)) = last_key {
+                                if lk == key && lt.elapsed() < Duration::from_millis(250) {
+                                    println!("忽略抖动 {key:?}");
+                                    continue;
+                                }
+                            }
+                            last_key = Some((key, Instant::now()));
                             {
                                 let _ = fs::write(&state_path, page.to_string());
                                 println!("页面 -> {}", page);
