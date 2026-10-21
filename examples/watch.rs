@@ -85,6 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let act_path = dir.join("active.txt"); // 渲染器写的"是否在对话中"
     let bat_path = dir.join("battery.txt"); // 电量：百分比,充电中(1/0)
     let pages_path = dir.join("pages.txt"); // 渲染器写的页数
+    let force_path = dir.join("force.req"); // 确认键：请求渲染器刷新数据
 
     let pages: i32 = fs::read_to_string(&pages_path)
         .ok()
@@ -133,6 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut last_push = Instant::now() - Duration::from_secs(600);
         let mut pending = false;
         let mut pending_since: Option<Instant> = None;
+        let mut settle = Duration::from_millis(500);   // 自适应安静期
         let mut last_key: Option<(Key, Instant)> = None;
         let mut last_ev: Option<Instant> = None;   // 诊断：事件间隔
         let mut last_hb = Instant::now() - Duration::from_secs(11);
@@ -175,11 +177,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 pending_since = None;
                             }
                         }
-                        // 连按合并：最后一次按键后静默 1.2 秒再推。
-                        // 原因：设备刷新约 2.5 秒，期间只能缓存约 2 个按键；
-                        // 若在连按中途开始刷新，后续按键会被设备丢弃。
+                        // 自适应安静期：单次按键 500ms 后刷（反馈快）；
+                        // 连按则延长到 1.2s，等停手再刷（避免刷新中途丢键）。
                         if let Some((_, lt)) = last_key {
-                            if lt.elapsed() < Duration::from_millis(1200) {
+                            if lt.elapsed() < settle {
                                 continue;
                             }
                         }
@@ -219,6 +220,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("  事件 {key:?} {action:?} 距上次 {gap} ms");
                             // 确认键（短按/长按）= 立即重推当前页
                             if matches!(key, Key::Confirm) {
+                                // 请求渲染器清缓存重绘（真正刷新，而不是只重推旧图）
+                                let _ = fs::write(&force_path, unix_now().to_string());
+                                for _ in 0..15 {
+                                    tokio::time::sleep(Duration::from_millis(100)).await;
+                                    if let Ok(png) = fs::read(&path) {
+                                        if fingerprint(&png) != last_fp { break; }
+                                    }
+                                }
                                 if let Ok(png) = fs::read(&path) {
                                     match device.show_with_format(&png, parse_format(&fmt_name)?).await {
                                         Ok(_) => {
@@ -241,6 +250,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             // 不按到达时间去抖：推送期间的事件会被 SDK 排队，
                             // 结束后同一毫秒涌入（间隔 0ms），时间去抖会误杀真实按键。
                             // 实测设备一次按压只发一个事件，无需去抖。
+                            let prev_gap = last_key.map(|(_, t)| t.elapsed())
+                                .unwrap_or(Duration::from_secs(60));
+                            settle = if prev_gap < Duration::from_millis(600) {
+                                Duration::from_millis(1200)   // 连按：等停手，避免刷新中途丢键
+                            } else {
+                                Duration::from_millis(500)    // 单次：尽快给反馈
+                            };
                             last_key = Some((key, Instant::now()));
                             let _ = fs::write(&state_path, page.to_string());
                             println!("按键 {key:?} → 第 {} 页", page + 1);
