@@ -43,6 +43,11 @@ CMAKE_BIN="$("$PY" -c 'import cmake,os;print(os.path.join(os.path.dirname(cmake.
 export PATH="${CMAKE_BIN:-}:$PATH"
 export CMAKE_POLICY_VERSION_MINIMUM=3.5
 
+# 已装 Rust 但 PATH 里没有（登录 shell 未加载配置）时直接复用
+if [ -x "$HOME/.cargo/bin/cargo" ]; then
+  export PATH="$HOME/.cargo/bin:$PATH"
+fi
+
 if ! command -v cargo >/dev/null 2>&1; then
   echo "    未找到 Rust，使用国内镜像安装"
   curl --proto '=https' --tlsv1.2 -sSf https://rsproxy.cn/rustup-init.sh | sh -s -- -y --profile minimal

@@ -1,0 +1,11 @@
+# 运行时生成
+status.png
+ui_state.txt
+pages.txt
+conn.txt
+battery.txt
+active.txt
+.daemon.lock
+.balance_cache.json
+.balance_daily.json
+logs/

@@ -195,40 +195,9 @@ def fmt_next(iso):
         return f"{mins // 60} 小时后"
     return f"{mins // 1440} 天后"
 
-def wrap_text(d, text, fnt, max_w, max_lines=2):
-    """按像素宽度折行，超出用省略号"""
-    lines, cur = [], ""
-    for ch in text:
-        if d.textlength(cur + ch, font=fnt) <= max_w:
-            cur += ch
-        else:
-            lines.append(cur)
-            cur = ch
-            if len(lines) == max_lines:
-                break
-    if cur and len(lines) < max_lines:
-        lines.append(cur)
-    if len(lines) == max_lines and sum(len(x) for x in lines) < len(text):
-        last = lines[-1]
-        while d.textlength(last + "…", font=fnt) > max_w and len(last) > 1:
-            last = last[:-1]
-        lines[-1] = last + "…"
-    return lines
-
-def today_cost(rate=7.1):
-    """今日花费：优先 actual_cost_usd，否则 estimated_cost_usd（美元）"""
-    try:
-        c = db(os.path.join(H, "state.db"))
-        start = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-        r = c.execute("""select coalesce(sum(case when actual_cost_usd > 0 then actual_cost_usd
-                                                  else estimated_cost_usd end), 0)
-                         from session_model_usage where last_seen >= ?""", (start,)).fetchone()
-        usd = float(r[0] or 0)
-        return usd, usd * rate
-    except Exception:
-        return 0.0, 0.0
-
 def daily_spend(total_str):
+    if DEMO:                      # 示例数据不写真实基线文件
+        return 6.12, time.time() - 3600
     """今日花费 = 当日余额下降量（与 DeepSeek 后台口径一致）
     首次运行当天只能从启动时刻开始计，返回 (金额, 起始时间戳)"""
     try:
@@ -281,10 +250,6 @@ def turn_state():
     except Exception:
         pass
     return False, 0.0
-
-def is_active():
-    m = last_msg()
-    return bool(m and (time.time() - m["ts"]) < 120)
 
 # ---------------- 渲染 ----------------
 def render(out, page=0):
@@ -487,12 +452,11 @@ def enable_demo():
     """把数据源替换为示例值：用于生成截图、给没有 Hermes 的人预览"""
     global DEMO
     DEMO = True
-    global model_name, today_cost, balance, count_facts, count_skills
+    global model_name, balance, count_facts, count_skills, daily_spend, today_msg_count, last_reply, week_counts, cron_jobs, link_status, turn_state, recent_msgs
     global week_counts, cron_jobs, last_reply, today_msg_count, link_status, turn_state, recent_msgs
 
     now = time.time()
     model_name = lambda: "deepseek-v4"
-    today_cost = lambda rate=7.1: (0.86, 0.86 * rate)
     daily_spend = lambda s: (6.12, time.time() - 3600)
     balance = lambda ttl=600: ("42.00", "12.00", 180.0)
     count_facts = lambda: 186

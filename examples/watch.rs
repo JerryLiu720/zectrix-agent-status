@@ -94,6 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut page: i32 = fs::read_to_string(&state_path)
         .ok()
         .and_then(|s| s.trim().parse().ok())
+        .map(|p: i32| p.rem_euclid(pages))
         .unwrap_or(0);
 
     // 外层：断线后自动重连
@@ -102,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // 独立协程持续消费事件：推送图像时按键也不会丢
         let (tx, mut rx) = mpsc::channel::<Event>(128);
-        {
+        let reader = {
             let d = device.clone();
             tokio::spawn(async move {
                 loop {
@@ -115,8 +116,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         _ => break,
                     }
                 }
-            });
-        }
+            })
+        };
 
         let _ = fs::write(&hb_path, format!("{}", unix_now()));
 
@@ -253,6 +254,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        reader.abort();   // 释放上一次连接的读取协程
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }
