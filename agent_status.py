@@ -274,11 +274,16 @@ def render(out, page=0):
         d.text((16, 66), "当前进度", font=font(11), fill=125)
         prog = "正在处理" if active else "空闲 · 等待指令"
         d.text((16, 80), prog, font=font(28), fill=0)
-        mdl = model_name()
-        while d.textlength(mdl, font=font(11, bold=False)) > 120 and len(mdl) > 4:
-            mdl = mdl[:-2] + "…"
-        sub = (f"最近活动 {ago(m['ts'])}" if m else "暂无活动") + f" · {mdl}"
+        sub = f"最近活动 {ago(m['ts'])}" if m else "暂无活动"
         d.text((16, 120), sub, font=font(11, bold=False), fill=120)
+
+        # 右侧：模型（右对齐，与"当前进度"同一视觉带）
+        mdl = model_name()
+        while d.textlength(mdl, font=font(15)) > 150 and len(mdl) > 4:
+            mdl = mdl[:-2] + "…"
+        d.text((W - 16 - d.textlength("模型", font=font(10, bold=False)), 66),
+               "模型", font=font(10, bold=False), fill=125)
+        d.text((W - 16 - d.textlength(mdl, font=font(15)), 80), mdl, font=font(15), fill=0)
 
         d.line([16, 142, W - 16, 142], fill=210)
 
@@ -297,9 +302,8 @@ def render(out, page=0):
         # 最近消息（最下面）
         d.text((16, 231), "最近消息", font=font(10, bold=False), fill=125)
         if m:
-            body = re.sub(r"[*_`#>\s]+", " ", m["content"] or "").strip()
-            body = re.sub(r"^[-\s]+", "", body)[:22]
-            d.text((16, 245), f"{ago(m['ts'])} · {body}…", font=font(12), fill=0)
+            body = clean_text(m["content"], 22)
+            d.text((16, 245), f"{ago(m['ts'])} · {body}", font=font(12), fill=0)
         else:
             d.text((16, 245), "暂无记录", font=font(12), fill=110)
 
@@ -345,9 +349,7 @@ def render(out, page=0):
     else:
         for m in recent_msgs(3):
             role = {"user": "我", "assistant": "AI", "tool": "工具"}.get(m["role"], m["role"])
-            txt = re.sub(r"\s+", " ", m["content"] or "").strip()
-            txt = re.sub(r"[*_`#>]+", "", txt).strip()      # 去掉 markdown 符号
-            txt = re.sub(r"^[-\s]+", "", txt)
+            txt = clean_text(m["content"], 46)
             if len(txt) > 46:
                 txt = txt[:46] + "…"
             line(f"{role} · {ago(m['ts'])}", txt)
@@ -373,6 +375,16 @@ def render(out, page=0):
     os.replace(tmp, out)             # 原子替换：watch 不会读到半张图
     _last_png = data
     return out
+
+def clean_text(s, limit=None):
+    """去掉 markdown 符号与字体不支持的 emoji，避免出现方块"""
+    s = re.sub(r"[*_`#>]+", "", s or "")
+    s = re.sub(r"[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF\uFE0F\u200D]", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"^[-\s]+", "", s)
+    if limit and len(s) > limit:
+        s = s[:limit] + "…"
+    return s
 
 def read_page():
     # watch.rs 写纯文本页码（零依赖）；兼容旧的 ui_state.json
