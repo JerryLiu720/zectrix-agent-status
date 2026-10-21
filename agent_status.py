@@ -146,7 +146,7 @@ def balance(ttl=600):
         if os.path.exists(BAL_CACHE):
             c = json.load(open(BAL_CACHE))
             if time.time() - c.get("t", 0) < ttl:
-                return c["total"], c["granted"]
+                return c["total"], c["granted"], time.time() - c.get("t", 0)
     except Exception:
         pass
     try:
@@ -162,9 +162,9 @@ def balance(ttl=600):
         b = (d.get("balance_infos") or [{}])[0]
         total, granted = b.get("total_balance", "—"), b.get("granted_balance", "—")
         json.dump({"total": total, "granted": granted, "t": time.time()}, open(BAL_CACHE, "w"))
-        return total, granted
+        return total, granted, 0.0
     except Exception:
-        return "—", "—"
+        return "—", "—", None
 
 def ago(ts):
     if not ts:
@@ -308,7 +308,7 @@ def render(out, page=0):
         # 仪表盘：当前进度 → 模型 → 花费/余额 → 最近消息
         active, elapsed = turn_state()
         usd, cny = today_cost()
-        bal, granted = balance()
+        bal, granted, bage = balance()
         m = last_reply()
 
         # 当前进度（最上面）：真实租约 → 处理中 + 本轮耗时
@@ -356,7 +356,12 @@ def render(out, page=0):
         d.text((16, 204), f"≈ ${usd:.2f}", font=font(10, bold=False), fill=125)
 
         bx = 232
-        d.text((bx, 150), "账户余额", font=font(11), fill=125)
+        blabel = "账户余额"
+        if bage is not None and bage >= 60:
+            blabel += f" · {int(bage // 60)} 分钟前"
+        elif bage is not None:
+            blabel += " · 刚刚"
+        d.text((bx, 150), blabel, font=font(11, bold=False), fill=125)
         d.text((bx, 166), f"¥{bal}", font=font(29), fill=0)
         d.text((bx, 204), f"赠金 ¥{granted}", font=font(10, bold=False), fill=125)
 
@@ -459,7 +464,7 @@ def enable_demo():
     now = time.time()
     model_name = lambda: "deepseek-v4"
     today_cost = lambda rate=7.1: (0.86, 0.86 * rate)
-    balance = lambda ttl=600: ("42.00", "12.00")
+    balance = lambda ttl=600: ("42.00", "12.00", 180.0)
     count_facts = lambda: 186
     count_skills = lambda: 34
     week_counts = lambda: [312, 118, 26, 0, 141, 9, 274]
