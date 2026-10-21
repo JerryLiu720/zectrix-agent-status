@@ -98,3 +98,8 @@ cargo run --example watch -- <IP> status.png gray16
 ## License
 
 MIT。SDK 与协议来自 [Zectrix 本地推送 SDK](https://github.com/itopinion/zectrix-local-push-sdk)，遵循其 MIT 许可。
+
+
+---
+
+**源码地址**：https://github.com/JerryLiu720/JerryLiu720.github.io/tree/zectrix-agent-status
