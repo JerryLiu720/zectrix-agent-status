@@ -274,7 +274,7 @@ def render(out, page=0):
 
     # 右上角：电量图标（实心比例 + 百分比），从右往左排
     pct, charging = battery()
-    icon_w, icon_h, iy = 24, 11, 12
+    icon_w, icon_h, iy = 24, 10, 11
     ix = W - 14 - icon_w
     d.rounded_rectangle([ix, iy, ix + icon_w - 5, iy + icon_h], radius=2, outline=255, width=1)
     d.rounded_rectangle([ix + icon_w - 4, iy + 4, ix + icon_w - 2, iy + icon_h - 4], radius=1, fill=255)
@@ -283,7 +283,7 @@ def render(out, page=0):
         if fw > 0:
             d.rounded_rectangle([ix + 2, iy + 2, ix + 1 + fw, iy + icon_h - 2], radius=1, fill=255)
 
-    bx = ix - 8
+    bx = ix - 10
     if pct is not None and pct <= 20 and not charging:
         d.text((bx - d.textlength("!", font=font(14)), 8), "!", font=font(14), fill=255)
         bx -= 12
