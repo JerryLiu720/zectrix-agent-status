@@ -456,7 +456,7 @@ def render(out, page=0):
     for i in range(len(PAGES)):
         cx = 16 + i * 14
         d.ellipse([cx, HT - 22, cx + 7, HT - 15], fill=0 if i == page else 200)
-    hint = f"v{VERSION} · " + ("示例数据 · " if DEMO else "") + "↑↓翻页 确认刷新"
+    hint = f"v{VERSION} · " + ("示例数据 · " if DEMO else "") + "↑↓ 翻页"
     hf = font(11)
     while d.textlength(hint, font=hf) > W - 90 and hf.size > 8:
         hf = font(hf.size - 1)
