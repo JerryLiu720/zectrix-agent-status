@@ -91,15 +91,56 @@ fi
 
 echo "==> [4/6] 编译 watch（首次需编译 Opus，约 1-2 分钟）"
 cp -f "$APP_DIR/examples/watch.rs" "$SDK_DIR/examples/watch.rs"
-# 国内网络直接从 crates.io 拉依赖会极慢甚至卡住，临时切到 rsproxy 镜像（不改用户全局配置）
-CARGO_MIRROR_ARGS=()
-if [ "${ZECTRIX_NO_MIRROR:-0}" != "1" ] && curl -s --max-time 5 -o /dev/null -w '%{http_code}' https://rsproxy.cn/index/config.json | grep -q 200; then
-  echo "    使用 rsproxy.cn 镜像拉取 crates"
-  CARGO_MIRROR_ARGS=(--config 'source.crates-io.replace-with="rsproxy-sparse"' \
-                     --config 'source.rsproxy-sparse.registry="sparse+https://rsproxy.cn/index/"' \
-                     --config 'net.git-fetch-with-cli=true')
+# 工具链与依赖走国内镜像（官方源实测 12 秒只下到 30%，镜像 0.4 秒）
+export RUSTUP_DIST_SERVER="${RUSTUP_DIST_SERVER:-https://rsproxy.cn}"
+export RUSTUP_UPDATE_ROOT="${RUSTUP_UPDATE_ROOT:-https://rsproxy.cn/rustup}"
+export CARGO_HTTP_TIMEOUT=60
+export CARGO_NET_RETRY=5
+
+CARGO_CFG="${CARGO_HOME:-$HOME/.cargo}/config.toml"
+mkdir -p "$(dirname "$CARGO_CFG")"
+[ -f "$CARGO_CFG" ] && cp -f "$CARGO_CFG" "$CARGO_CFG.zectrix.bak"
+
+try_mirror() {   # $1=名字 $2=registry
+  cat > "$CARGO_CFG" <<CFG
+[source.crates-io]
+replace-with = "$1"
+[source.$1]
+registry = "$2"
+[net]
+git-fetch-with-cli = true
+CFG
+  ( cd "$SDK_DIR" && cargo fetch --locked >/dev/null 2>&1 )
+}
+
+MIRROR_OK=0
+for pair in \
+  "tuna|sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/" \
+  "aliyun|sparse+https://mirrors.aliyun.com/crates.io-index/" \
+  "rsproxy|sparse+https://rsproxy.cn/index/"; do
+  NAME="${pair%%|*}"; URL="${pair#*|}"
+  if try_mirror "$NAME" "$URL"; then
+    echo "    依赖镜像：$NAME ✅"
+    MIRROR_OK=1
+    break
+  fi
+  echo "    $NAME 不可用，换下一个…"
+done
+if [ "$MIRROR_OK" = 0 ]; then
+  echo "    全部镜像不可用，回退官方源（可能较慢）"
+  [ -f "$CARGO_CFG.zectrix.bak" ] && cp -f "$CARGO_CFG.zectrix.bak" "$CARGO_CFG" || rm -f "$CARGO_CFG"
 fi
-( cd "$SDK_DIR" && cargo build --release --locked --example watch "${CARGO_MIRROR_ARGS[@]}" )
+
+( cd "$SDK_DIR" && cargo build --release --locked --example watch )
+BUILD_RC=$?
+
+# 还原用户原有的 cargo 配置
+if [ -f "$CARGO_CFG.zectrix.bak" ]; then
+  mv -f "$CARGO_CFG.zectrix.bak" "$CARGO_CFG"
+elif [ "$MIRROR_OK" = 1 ]; then
+  rm -f "$CARGO_CFG"
+fi
+[ "$BUILD_RC" -ne 0 ] && { echo "编译失败（cargo exit $BUILD_RC）"; exit 1; }
 mkdir -p "$INSTALL_DIR/bin"
 install -m 755 "$SDK_DIR/target/release/examples/watch" "$INSTALL_DIR/bin/zectrix-watch"
 WATCH_BIN="$INSTALL_DIR/bin/zectrix-watch"
