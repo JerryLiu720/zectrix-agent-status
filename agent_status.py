@@ -274,23 +274,24 @@ def render(out, page=0):
 
     # 右上角：电量图标（实心比例 + 百分比），从右往左排
     pct, charging = battery()
-    icon_w, icon_h, iy = 20, 10, 12
+    icon_w, icon_h, iy = 42, 18, 8
     ix = W - 14 - icon_w
     d.rectangle([ix, iy, ix + icon_w - 4, iy + icon_h], outline=255, width=1)
-    d.rectangle([ix + icon_w - 3, iy + 3, ix + icon_w - 1, iy + icon_h - 3], fill=255)  # 电极
+    d.rectangle([ix + icon_w - 3, iy + 5, ix + icon_w - 1, iy + icon_h - 5], fill=255)
     if pct is not None:
-        fw = int((icon_w - 5) * max(0, min(pct, 100)) / 100)
+        fw = int((icon_w - 6) * max(0, min(pct, 100)) / 100)
         if fw > 0:
-            d.rectangle([ix + 2, iy + 2, ix + 1 + fw, iy + icon_h - 2], fill=255)
+            d.rectangle([ix + 2, iy + 3, ix + 1 + fw, iy + icon_h - 3], fill=255)
+        num = str(pct)
+        f = font(11)
+        tw = d.textlength(num, font=f)
+        d.text((ix + (icon_w - 4 - tw) / 2, iy + 3), num, font=f,
+               fill=(0 if pct >= 45 else 255))
 
-    bx = ix - 6
-    if pct is not None:
-        low = pct <= 20 and not charging
-        ptxt = f"低 {pct}%" if low else (f"{pct}%" + ("+" if charging else ""))
-        pf = font(12) if low else font(12, bold=False)
-        d.text((bx - d.textlength(ptxt, font=pf), 9), ptxt, font=pf, fill=255)
-        bx -= d.textlength(ptxt, font=pf) + 8
-
+    bx = ix - 8
+    if pct is not None and pct <= 20 and not charging:
+        d.text((bx - d.textlength("!", font=font(14)), 8), "!", font=font(14), fill=255)
+        bx -= 12
     d.text((bx - d.textlength(now, font=font(14)), 9), now, font=font(14), fill=255)
     # 顶栏不再放灯：时间右对齐到底
 
