@@ -277,17 +277,25 @@ def render(out, page=0):
         mdl = model_name()
         while d.textlength(mdl, font=font(15)) > 150 and len(mdl) > 4:
             mdl = mdl[:-2] + "…"
-        d.text((W - 16 - d.textlength("模型", font=font(10, bold=False)), 66),
-               "模型", font=font(10, bold=False), fill=125)
-        # 指示灯：实心=已连接，空心=断开
+        # 标签行（右对齐）：模型  ● 已连接
         _ltxt, _lok = link_status()
-        dot_r = 5
-        dot_cx, dot_cy = W - 13, 90
+        f_lbl = font(10, bold=False)
+        ltxt = "已连接" if _lok else "断开"
+        w_lbl = d.textlength("模型", font=f_lbl)
+        w_lt = d.textlength(ltxt, font=f_lbl)
+        dot_r = 4
+        total = w_lbl + 6 + dot_r * 2 + 5 + w_lt
+        lx = W - 16 - total
+        d.text((lx, 66), "模型", font=f_lbl, fill=125)
+        dcx = lx + w_lbl + 6 + dot_r
+        dcy = 71
         if _lok:
-            d.ellipse([dot_cx - dot_r, dot_cy - dot_r, dot_cx + dot_r, dot_cy + dot_r], fill=0)
+            d.ellipse([dcx - dot_r, dcy - dot_r, dcx + dot_r, dcy + dot_r], fill=0)
         else:
-            d.ellipse([dot_cx - dot_r, dot_cy - dot_r, dot_cx + dot_r, dot_cy + dot_r], outline=0, width=2)
-        d.text((dot_cx - dot_r - 8 - d.textlength(mdl, font=font(15)), 80), mdl, font=font(15), fill=0)
+            d.ellipse([dcx - dot_r, dcy - dot_r, dcx + dot_r, dcy + dot_r], outline=0, width=2)
+        d.text((dcx + dot_r + 5, 66), ltxt, font=f_lbl, fill=125)
+        # 模型名（右对齐，大字）
+        d.text((W - 16 - d.textlength(mdl, font=font(15)), 80), mdl, font=font(15), fill=0)
 
         d.line([16, 142, W - 16, 142], fill=210)
 
