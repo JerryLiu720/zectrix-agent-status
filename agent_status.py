@@ -22,7 +22,7 @@ W, HT = 400, 300
 BASE = os.path.expanduser("~/zectrix-sdk")
 STATE = os.path.join(BASE, "ui_state.json")
 BAL_CACHE = os.path.join(BASE, ".balance_cache.json")
-PAGES = ["概览", "日程", "余额", "日志"]
+PAGES = ["概览", "统计", "日程", "日志"]
 _last_png = None   # 内容去重：没变化就不写文件，避免墨水屏频繁刷新
 
 from PIL import Image, ImageDraw, ImageFont
@@ -160,6 +160,32 @@ def fmt_next(iso):
         return f"{mins // 60} 小时后"
     return f"{mins // 1440} 天后"
 
+def today_cost(rate=7.1):
+    """今日花费：优先 actual_cost_usd，否则 estimated_cost_usd（美元）"""
+    try:
+        c = db(os.path.join(H, "state.db"))
+        start = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        r = c.execute("""select coalesce(sum(case when actual_cost_usd > 0 then actual_cost_usd
+                                                  else estimated_cost_usd end), 0)
+                         from session_model_usage where last_seen >= ?""", (start,)).fetchone()
+        usd = float(r[0] or 0)
+        return usd, usd * rate
+    except Exception:
+        return 0.0, 0.0
+
+def week_counts():
+    """最近 7 天每天的消息数（含今天），用于柱状图"""
+    try:
+        c = db(os.path.join(H, "state.db"))
+        today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        start = today - datetime.timedelta(days=6)
+        rows = dict(c.execute(
+            """select date(timestamp,'unixepoch','localtime') d, count(*)
+               from messages where timestamp >= ? group by d""", (start.timestamp(),)).fetchall())
+        return [rows.get((start + datetime.timedelta(days=i)).strftime("%Y-%m-%d"), 0) for i in range(7)]
+    except Exception:
+        return [0] * 7
+
 def is_active():
     m = last_msg()
     return bool(m and (time.time() - m["ts"]) < 120)
@@ -191,18 +217,60 @@ def render(out, page=0):
         y += 16 + (26 if big else 22)
 
     if page == 0:
-        line("状态", "● 任务进行中" if is_active() else "○ 空闲", big=True)
-        line("今日消息", f"{today_msg_count()} 条")
-        m = last_msg()
-        line("最近活动", ago(m["ts"]) if m else "—")
-        jobs = cron_jobs()
-        if jobs:
-            line(jobs[0]["name"][:16], f"{fmt_next(jobs[0]['next'])}   {jobs[0]['schedule']}")
-        else:
-            line("下次定时", "无")
-        line("记忆 / 技能", f"{count_facts()} facts · {count_skills()} skills", dim=True)
+        # 概览：状态 / 模型 / 今日花费 / 余额，留白优先
+        active = is_active()
+        d.text((16, 74), "●" if active else "○", font=font(22), fill=0)
+        d.text((44, 72), "运行中" if active else "空闲", font=font(25), fill=0)
+
+        d.text((16, 116), "模型", font=font(12), fill=125)
+        mdl = model_name()
+        while d.textlength(mdl, font=font(27)) > W - 32 and len(mdl) > 4:
+            mdl = mdl[:-2] + "…"
+        d.text((16, 134), mdl, font=font(27), fill=0)
+
+        d.line([16, 190, W - 16, 190], fill=205)
+
+        usd, cny = today_cost()
+        d.text((16, 202), "今日花费", font=font(12), fill=125)
+        d.text((16, 220), f"¥{cny:,.2f}", font=font(29), fill=0)
+        d.text((16, 256), f"≈ ${usd:.2f}", font=font(11, bold=False), fill=120)
+
+        bal, granted = balance()
+        bx = 232
+        d.text((bx, 202), "账户余额", font=font(12), fill=125)
+        d.text((bx, 220), f"¥{bal}", font=font(31), fill=0)
+        d.text((bx, 256), f"赠金 ¥{granted}", font=font(11, bold=False), fill=120)
 
     elif page == 1:
+        # 统计：近 7 日消息
+        d.text((16, 68), "近 7 日消息", font=font(13), fill=110)
+        wc = week_counts()
+        RX, base_y, max_h = 22, 198, 96
+        bw, gap = 36, 14
+        mx = max(wc) or 1
+        for i, v in enumerate(wc):
+            x = RX + i * (bw + gap)
+            h = max(3, int(v / mx * max_h))
+            top = base_y - h
+            if i == 6:
+                d.rectangle([x, top, x + bw, base_y], fill=0)
+            else:
+                d.rectangle([x, top, x + bw, base_y], outline=0, width=2)
+                for yy in range(top + 3, base_y - 2, 5):
+                    d.line([x + 2, yy, x + bw - 2, yy], fill=205, width=1)
+            label = str(v)
+            d.text((x + bw / 2 - d.textlength(label, font=font(11, bold=False)) / 2, top - 15),
+                   label, font=font(11, bold=False), fill=90)
+        d.line([RX - 8, base_y, RX + 7 * (bw + gap) - gap + 4, base_y], fill=0, width=2)
+        for i, wd in enumerate(["一", "二", "三", "四", "五", "六", "日"]):
+            d.text((RX + i * (bw + gap) + bw / 2 - 5, base_y + 6), wd, font=font(11, bold=False), fill=120)
+
+        d.line([10, 234, W - 10, 234], fill=200)
+        d.text((16, 242), f"今日 {today_msg_count()} 条", font=font(13), fill=0)
+        d.text((148, 242), f"记忆 {count_facts()}", font=font(13), fill=0)
+        d.text((272, 242), f"技能 {count_skills()}", font=font(13), fill=0)
+
+    elif page == 2:
         today = datetime.datetime.now()
         wd = "一二三四五六日"[today.weekday()]
         line("今天", today.strftime("%Y-%m-%d") + f"  周{wd}", big=True)
@@ -212,17 +280,12 @@ def render(out, page=0):
         for j in jobs[:3]:
             line(j["name"][:16], f"{fmt_next(j['next'])}  ({j['schedule']})")
 
-    elif page == 2:
-        bal, granted = balance()
-        line("DeepSeek 余额", f"¥{bal}", big=True)
-        line("其中赠金", f"¥{granted}")
-        line("模型", model_name())
-        line("记忆 / 技能", f"{count_facts()} · {count_skills()}")
-
     else:
         for m in recent_msgs(3):
             role = {"user": "我", "assistant": "AI", "tool": "工具"}.get(m["role"], m["role"])
             txt = re.sub(r"\s+", " ", m["content"] or "").strip()
+            txt = re.sub(r"[*_`#>]+", "", txt).strip()      # 去掉 markdown 符号
+            txt = re.sub(r"^[-\s]+", "", txt)
             if len(txt) > 46:
                 txt = txt[:46] + "…"
             line(f"{role} · {ago(m['ts'])}", txt)

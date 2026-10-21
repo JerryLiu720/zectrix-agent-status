@@ -1,32 +1,36 @@
-# HERMES 状态屏 · Zectrix NOTE4 Agent 副屏
+# 个人 AI 助手状态屏 · Zectrix NOTE4
 
-> 把 AI Agent 的真实工作状态放到桌边一块 4.2" 墨水屏上：模型、余额、记忆条数、定时任务倒计时、最近对话。
-> 按键翻页，局域网点对点推送，**不经过云端**。
+> 别人做的是「Codex / Claude Code 编程助手」的看板；这一版做的是**任何个人 AI 助手**的桌面副屏：
+> 现在在不在干活、用的什么模型、今天花了多少钱、账户还剩多少、今天聊了多少、下一步定时任务是什么。
 
 ![preview](screenshots/preview.png)
 
-## 为什么做这个
+## 和社区现有项目的区别
 
-官方示例里已经有宠物、天气、待办 —— 但没有一个展示「**AI Agent 正在做什么**」。
-这个项目把 Agent 的运行数据（Hermes 的本地状态库）变成一张随时可瞄一眼的副屏，
-零配置即可跑（读不到 Hermes 时自动降级为示例数据）。
+| 现有项目 | 它们做的 | 这个项目 |
+|---|---|---|
+| Codex 配额看板 / Claude Code HUD | **编程会话**的额度与上下文 | **通用个人助手**的日常开销与状态 |
+| Codex 宠物 | 任务状态 + 像素动画 | 不绑定任何一家 agent，数据源可换 |
+| AI 日报 / 天气 / 待办 | 单一内容 | 助手自身的运行画像 |
+
+核心差异：**它不是某个工具的附属屏，而是"我的 AI"的状态屏** —— 换模型、换 agent、换供应商都能用。
 
 ## 四页内容
 
 | 页 | 内容 |
 |---|---|
-| 1 概览 | 运行状态（进行中/空闲）、今日消息数、最近活动、下一个定时任务 |
-| 2 日程 | 今天日期 + 所有 cron 任务的倒计时与表达式 |
-| 3 余额 | DeepSeek 余额 / 赠金 / 当前模型 / 记忆与技能数量 |
-| 4 日志 | 最近 3 条对话摘要（自动跳过工具原始输出） |
+| 1 概览 | 运行中/空闲 · 模型 · **今日花费** · **账户余额**（含赠金） |
+| 2 统计 | 近 7 日消息柱状图 · 今日条数 · 记忆条数 · 技能个数 |
+| 3 日程 | 今天日期 · 所有定时任务的倒计时与 cron 表达式 |
+| 4 日志 | 最近 3 条对话摘要（自动去掉 Markdown 符号） |
 
 ## 特性
 
-- **真实数据**：直接读 `~/.hermes/state.db`、`cron/jobs.json`、`memory_store.db`、DeepSeek 余额接口
-- **按键翻页**：短按 ↑/↓ 切页；页码写在 `ui_state.txt`，渲染器与设备端解耦
+- **真实数据**：读 Hermes 本地状态库（消息量、token 与花费）、cron 配置、记忆库、DeepSeek 余额接口
+- **按键翻页**：短按 ↑/↓ 切页；短按确认 = 立即重推当前页
 - **保持画面**：推完不关闭连接（官方 `show` 示例会 `close()`，设备立刻回主页）
-- **自动重连**：设备被占用/断线/租约未释放时每 2 秒重试
-- **内容去重**：渲染结果没变化就不写文件 → 墨水屏不会每几秒闪一次
+- **自动重连**：设备被占用 / 断线 / 租约未释放时每 2 秒重试
+- **护屏节流**：翻页立即刷新；数据类变化 5 分钟最多一次；内容不变绝不重绘
 - **十六灰阶**：中文用 Hiragino Sans GB 渲染，400×300 满屏
 
 ## 架构
@@ -35,53 +39,60 @@
  agent_status.py  ──渲染──▶  status.png  ──监视变化──▶  watch.rs  ──LAN──▶  NOTE4
    （读本地状态）              （原子替换）        （保持连接 + 按键）      （屏幕）
         ▲                                                                    │
-        └──────────────── ui_state.txt（页码） ◀──────────── 按键 ↑/↓ ──────┘
+        └──────────────── ui_state.txt（页码，与 PNG 同目录）◀── 按键 ↑/↓ ──┘
 ```
 
 ## 安装（3 步）
 
-> 需要：macOS（Apple Silicon 已验证）、Python 3、Rust（脚本会自动装）。
-
 ```bash
-# 1. 放入设备 IP（设备需与电脑同一 Wi-Fi，并开启「设置 → 网络同步 → 待机保持 Wi-Fi」）
-./install.sh 192.168.1.100
-
-# 2. 授权开机自启（脚本会引导）
-# 3. 完成：屏幕应显示第 1 页
+./install.sh 192.168.1.100      # 设备需与电脑同一 Wi-Fi，并开启「待机保持 Wi-Fi」
 ```
 
-`install.sh` 会做：装 cmake（若缺）→ 拉取 Zectrix SDK → 编译 `watch` → 安装两个 LaunchAgent（渲染 daemon + 设备推送）。
+`install.sh` 会：装 cmake（pip，不走 brew）→ 拉取 Zectrix SDK（codeload 绕过 github.com）→ 编译 `watch` → 安装两个 LaunchAgent（渲染 daemon + 设备推送）。
 
 ## 使用
 
 | 操作 | 效果 |
 |---|---|
 | 短按 ↑ / ↓ | 上一页 / 下一页 |
-| 短按确认 | 无（渲染器每 3 秒自动刷新数据） |
-| 修改 `agent_status.py` 的 `PAGES` | 增删页面 |
+| 短按确认 | 立即重推当前页 |
+| 改 `agent_status.py` 的 `PAGES` | 增删页面 |
 
 手动调试：
 
 ```bash
-python3 agent_status.py --page 2          # 只渲染第 3 页到 status.png
+python3 agent_status.py --page 1          # 只渲染第 2 页到 status.png
 cargo run --example watch -- <IP> status.png gray16
 ```
+
+## 换成你自己的助手
+
+数据都从这几个地方读，替换即可：
+
+| 数据 | 来源 |
+|---|---|
+| 消息量 / 花费 | `~/.hermes/state.db` → `messages`、`session_model_usage` |
+| 定时任务 | `~/.hermes/cron/jobs.json` |
+| 记忆 / 技能 | `~/.hermes/memory_store.db`、`~/.hermes/skills/**/SKILL.md` |
+| 余额 | DeepSeek `/user/balance`（缓存 10 分钟） |
+
+换别的 agent，只要把 `week_counts()` / `today_cost()` / `cron_jobs()` 换掉即可，渲染层不用动。
 
 ## 常见问题
 
 | 现象 | 原因 / 解法 |
 |---|---|
-| `Error: NoDevice` | SDK 的 mDNS 自动发现不稳；**直接传 IP** 即可 |
-| `Error: Busy` | 设备被上一个连接占着，等 2 秒（本项目的 watch 会自动重试） |
+| `Error: NoDevice` | SDK 的 mDNS 自动发现不稳；**直接传 IP** |
+| `Error: Busy` | 设备被上一个连接占着，等 2 秒（本项目会自动重试） |
 | 中文显示成方块 | 本机 Pillow 打不开 `PingFang.ttc`，已改用 `Hiragino Sans GB` |
-| 屏幕回主页 | 说明推送进程退了：画面只在连接保持期间有效 |
-| 设备离线 | 关掉「待机保持 Wi-Fi」或不在同一局域网时扫不到 |
+| 按键没反应 | 页码文件必须与 PNG **同目录**；本版已内置，勿改路径 |
+| 屏幕回主页 | 推送进程退出后设备会回主页；用 install.sh 装成 LaunchAgent 可常驻 |
 
 ## 已知限制
 
 - 仅同一局域网（LAN v1 协议，端口 32342）
 - 同一设备同时只能有一个客户端连接
-- 余额查询每 10 分钟缓存一次，避免频繁调用 API
+- 花费为 token 估算值（DeepSeek 计价），非账单金额
 
 ## License
 
