@@ -101,12 +101,12 @@ CARGO_CFG="${CARGO_HOME:-$HOME/.cargo}/config.toml"
 mkdir -p "$(dirname "$CARGO_CFG")"
 [ -f "$CARGO_CFG" ] && cp -f "$CARGO_CFG" "$CARGO_CFG.zectrix.bak"
 
-try_mirror() {   # $1=名字 $2=registry
+try_mirror() {   # $1=registry URL；源名固定为 zectrix-mirror，避免与用户已有配置重名
   cat > "$CARGO_CFG" <<CFG
 [source.crates-io]
-replace-with = "$1"
-[source.$1]
-registry = "$2"
+replace-with = "zectrix-mirror"
+[source.zectrix-mirror]
+registry = "$1"
 [net]
 git-fetch-with-cli = true
 CFG
@@ -114,17 +114,20 @@ CFG
 }
 
 MIRROR_OK=0
-for pair in \
-  "tuna|sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/" \
-  "aliyun|sparse+https://mirrors.aliyun.com/crates.io-index/" \
-  "rsproxy|sparse+https://rsproxy.cn/index/"; do
-  NAME="${pair%%|*}"; URL="${pair#*|}"
-  if try_mirror "$NAME" "$URL"; then
-    echo "    依赖镜像：$NAME ✅"
+# 顺序很重要：只有自带 CDN 的镜像才能真正下到 crate 文件
+#  · 阿里云：index + crates CDN（实测 10 秒拉完 170MB）
+#  · rsproxy：index + CDN
+#  · tuna：只代理 index，dl 仍指向 static.crates.io，会卡死（放最后）
+for url in \
+  "sparse+https://mirrors.aliyun.com/crates.io-index/" \
+  "sparse+https://rsproxy.cn/index/" \
+  "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"; do
+  if try_mirror "$url"; then
+    echo "    依赖镜像：$url ✅"
     MIRROR_OK=1
     break
   fi
-  echo "    $NAME 不可用，换下一个…"
+  echo "    镜像不可用，换下一个：$url"
 done
 if [ "$MIRROR_OK" = 0 ]; then
   echo "    全部镜像不可用，回退官方源（可能较慢）"
