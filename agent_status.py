@@ -242,13 +242,9 @@ def render(out, page=0):
     d.rectangle([0, 0, W, 34], fill=0)
     d.text((10, 7), "HERMES", font=font(18), fill=255)
     now = datetime.datetime.now().strftime("%m-%d %H:%M")
-    d.text((W - 40 - d.textlength(now, font=font(14)), 9), now, font=font(14), fill=255)
-    # 右上角：设备连接指示灯（实心=已连接，空心=未连接）
-    _ltxt, _lok = link_status()
-    if _lok:
-        d.ellipse([W - 18, 12, W - 8, 22], fill=255)
-    else:
-        d.ellipse([W - 18, 12, W - 8, 22], outline=255, width=2)
+    d.text((W - 14 - d.textlength(now, font=font(14)), 9), now, font=font(14), fill=255)
+    # 顶栏不再放灯：时间右对齐到底
+
 
     # 页标题
     d.text((10, 40), f"{page + 1}/{len(PAGES)}  {PAGES[page]}", font=font(14), fill=90)
@@ -283,7 +279,15 @@ def render(out, page=0):
             mdl = mdl[:-2] + "…"
         d.text((W - 16 - d.textlength("模型", font=font(10, bold=False)), 66),
                "模型", font=font(10, bold=False), fill=125)
-        d.text((W - 16 - d.textlength(mdl, font=font(15)), 80), mdl, font=font(15), fill=0)
+        # 指示灯：实心=已连接，空心=断开
+        _ltxt, _lok = link_status()
+        dot_r = 5
+        dot_cx, dot_cy = W - 13, 90
+        if _lok:
+            d.ellipse([dot_cx - dot_r, dot_cy - dot_r, dot_cx + dot_r, dot_cy + dot_r], fill=0)
+        else:
+            d.ellipse([dot_cx - dot_r, dot_cy - dot_r, dot_cx + dot_r, dot_cy + dot_r], outline=0, width=2)
+        d.text((dot_cx - dot_r - 8 - d.textlength(mdl, font=font(15)), 80), mdl, font=font(15), fill=0)
 
         d.line([16, 142, W - 16, 142], fill=210)
 
