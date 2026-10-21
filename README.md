@@ -131,10 +131,14 @@ cargo run --example watch -- <IP> status.png gray16
 
 ```bash
 ./scripts/status.sh     # 查看是否在运行、进程号、设备心跳多久前
-./scripts/stop.sh       # 停止：设备几秒后回到主页
-./scripts/start.sh      # 重新启动
+./scripts/stop.sh       # 停止，并禁用下次登录自动启动
+./scripts/start.sh      # 手动启动（不会恢复自启）
 ./scripts/uninstall.sh  # 卸载：停止并删除 LaunchAgent（保留安装目录）
 ```
+
+> **默认按"手动开关"使用**：`stop.sh` 会把 LaunchAgent 移到 `~/Library/LaunchAgents/disabled/`，
+> 所以下次登录不会自己起来；`start.sh` 用 nohup 直接拉起进程，同样不会恢复自启。
+> 想恢复开机自启：重新运行一次 `./install.sh <设备IP>`。
 
 停止后不会影响其他软件；这三个服务只做两件事：读本机状态文件渲染 PNG、通过局域网推给 NOTE4（不联网上传任何数据）。
 

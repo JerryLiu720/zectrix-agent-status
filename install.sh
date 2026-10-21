@@ -60,6 +60,7 @@ mkdir -p "$INSTALL_DIR/logs" "$INSTALL_DIR/bin" "$LA"
 cp -f "$APP_DIR/agent_status.py" "$INSTALL_DIR/agent_status.py"
 install -m 755 "$APP_DIR/scripts/rotate_logs.sh" "$INSTALL_DIR/bin/rotate-logs.sh"
 echo 0 > "$INSTALL_DIR/ui_state.txt"
+echo "IP=$IP" > "$INSTALL_DIR/config.txt"
 
 echo "==> [3/6] 获取 Zectrix SDK（github.com 不通时走 codeload）"
 if [ ! -d "$SDK_DIR" ]; then
