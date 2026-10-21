@@ -323,7 +323,7 @@ def render(out, page=0):
     y = 68
     def line(label, value, big=False, dim=False):
         nonlocal y
-        d.text((12, y), label, font=font(13), fill=110)
+        d.text((12, y), label, font=font(14), fill=110)
         while d.textlength(value, font=font(19 if big else 16)) > W - 24 and len(value) > 4:
             value = value[:-2] + "…"
         d.text((12, y + 16), value, font=font(19 if big else 16), fill=70 if dim else 0)
@@ -400,13 +400,13 @@ def render(out, page=0):
         d.text((16, 231), "最近消息", font=font(10, bold=False), fill=125)
         if m:
             body = clean_text(m["content"], 22)
-            d.text((16, 245), f"{ago(m['ts'])} · {body}", font=font(12), fill=0)
+            d.text((16, 244), f"{ago(m['ts'])} · {body}", font=font(14), fill=0)
         else:
-            d.text((16, 245), "暂无记录", font=font(12), fill=110)
+            d.text((16, 244), "暂无记录", font=font(14), fill=110)
 
     elif page == 1:
         # 统计：近 7 日消息
-        d.text((16, 68), "近 7 日消息", font=font(13), fill=110)
+        d.text((16, 68), "近 7 日消息", font=font(14), fill=110)
         wc = week_counts()
         RX, base_y, max_h = 22, 198, 96
         bw, gap = 36, 14
@@ -429,9 +429,9 @@ def render(out, page=0):
             d.text((RX + i * (bw + gap) + bw / 2 - 5, base_y + 6), wd, font=font(11, bold=False), fill=120)
 
         d.line([10, 234, W - 10, 234], fill=200)
-        d.text((16, 242), f"今日 {today_msg_count()} 条", font=font(13), fill=0)
-        d.text((148, 242), f"记忆 {count_facts()}", font=font(13), fill=0)
-        d.text((272, 242), f"技能 {count_skills()}", font=font(13), fill=0)
+        d.text((16, 241), f"今日 {today_msg_count()} 条", font=font(14), fill=0)
+        d.text((150, 241), f"记忆 {count_facts()}", font=font(14), fill=0)
+        d.text((276, 241), f"技能 {count_skills()}", font=font(14), fill=0)
 
     elif page == 2:
         today = datetime.datetime.now()
@@ -457,7 +457,7 @@ def render(out, page=0):
         cx = 16 + i * 14
         d.ellipse([cx, HT - 22, cx + 7, HT - 15], fill=0 if i == page else 200)
     hint = f"v{VERSION} · " + ("示例数据 · " if DEMO else "") + "↑↓ 翻页"
-    d.text((W - 14 - d.textlength(hint, font=font(12)), HT - 24), hint, font=font(12), fill=110)
+    d.text((W - 14 - d.textlength(hint, font=font(11)), HT - 24), hint, font=font(11), fill=110)
 
     import io
     global _last_png
