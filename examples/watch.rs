@@ -187,9 +187,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 (KeyAction::Short, Key::Down) => page = (page + 1) % pages,
                                 _ => continue,
                             }
-                            // 去抖：同方向 250ms 内的重复事件视为一次（按键抖动/长按重复）
+                            // 去抖：同方向 60ms 内的重复事件视为硬件抖动（人手连按间隔通常 >80ms）
                             if let Some((lk, lt)) = last_key {
-                                if lk == key && lt.elapsed() < Duration::from_millis(250) {
+                                if lk == key && lt.elapsed() < Duration::from_millis(60) {
                                     println!("忽略抖动 {key:?}");
                                     continue;
                                 }
