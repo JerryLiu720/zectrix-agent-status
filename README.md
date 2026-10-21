@@ -68,7 +68,9 @@ git clone 后执行 ./install.sh <设备IP>；完成后确认 NOTE4 显示第 1 
 ./install.sh 192.168.1.100      # 设备需与电脑同一 Wi-Fi，并开启「待机保持 Wi-Fi」
 ```
 
-`install.sh` 会：装 cmake（pip，不走 brew）→ 拉取 Zectrix SDK（codeload 绕过 github.com）→ 编译 `watch` → 安装两个 LaunchAgent（渲染 daemon + 设备推送）。
+`install.sh` 会：装 cmake（pip，不走 brew）→ 拉取 Zectrix SDK（codeload 绕过 github.com）→ 编译 `watch` → 安装三个 LaunchAgent（渲染 daemon、设备推送、日志轮转）。
+
+编译 Rust 依赖时，脚本会探测 `rsproxy.cn`，可用则临时切国内镜像（`--config` 传入，不改你的全局 cargo 配置）；设 `ZECTRIX_NO_MIRROR=1` 可强制走官方源。
 
 ## 使用
 

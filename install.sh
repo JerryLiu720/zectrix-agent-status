@@ -62,7 +62,15 @@ fi
 
 echo "==> [4/6] 编译 watch（首次需编译 Opus，约 1-2 分钟）"
 cp -f "$APP_DIR/examples/watch.rs" "$SDK_DIR/examples/watch.rs"
-( cd "$SDK_DIR" && cargo build --release --locked --example watch )
+# 国内网络直接从 crates.io 拉依赖会极慢甚至卡住，临时切到 rsproxy 镜像（不改用户全局配置）
+CARGO_MIRROR_ARGS=()
+if [ "${ZECTRIX_NO_MIRROR:-0}" != "1" ] && curl -s --max-time 5 -o /dev/null -w '%{http_code}' https://rsproxy.cn/index/config.json | grep -q 200; then
+  echo "    使用 rsproxy.cn 镜像拉取 crates"
+  CARGO_MIRROR_ARGS=(--config 'source.crates-io.replace-with="rsproxy-sparse"' \
+                     --config 'source.rsproxy-sparse.registry="sparse+https://rsproxy.cn/index/"' \
+                     --config 'net.git-fetch-with-cli=true')
+fi
+( cd "$SDK_DIR" && cargo build --release --locked --example watch "${CARGO_MIRROR_ARGS[@]}" )
 mkdir -p "$INSTALL_DIR/bin"
 install -m 755 "$SDK_DIR/target/release/examples/watch" "$INSTALL_DIR/bin/zectrix-watch"
 WATCH_BIN="$INSTALL_DIR/bin/zectrix-watch"
