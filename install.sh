@@ -13,6 +13,17 @@ SDK_DIR="$INSTALL_DIR/zectrix-local-push-sdk"
 LA="$HOME/Library/LaunchAgents"
 UID_N="$(id -u)"
 
+echo "==> [0/6] 预检设备连通性"
+if ping -c 1 -W 1500 "$IP" >/dev/null 2>&1; then
+  echo "    $IP 可达"
+else
+  echo "    ⚠️  无法 ping 通 $IP —— 常见原因："
+  echo "       1) 设备与电脑不在同一 Wi-Fi"
+  echo "       2) 设备未开启「设置 → 网络同步 → 待机保持 Wi-Fi」"
+  echo "       3) IP 已变化（DHCP）"
+  echo "    仍继续安装，装完可用 ./restart.sh 重试连接。"
+fi
+
 echo "==> [1/6] 检查依赖"
 PY="$(command -v python3 || true)"
 [ -z "$PY" ] && { echo "缺少 python3"; exit 1; }
