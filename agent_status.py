@@ -71,6 +71,28 @@ def last_msg():
     except Exception:
         return None
 
+def link_status():
+    """读取 watch 写的 conn.txt 心跳，判断设备连接状态"""
+    try:
+        ts = float(open(os.path.join(BASE, "conn.txt")).read().strip())
+        age = time.time() - ts
+        if age < 30:
+            return "已连接", True
+        return f"{int(age // 60)} 分钟前", False
+    except Exception:
+        return "未连接", False
+
+def last_reply():
+    """最后一条助手回复（不是用户消息）"""
+    try:
+        row = db(os.path.join(H, "state.db")).execute(
+            """select role, content, timestamp from messages
+               where role='assistant' and content is not null and length(trim(content))>0
+               order by timestamp desc limit 1""").fetchone()
+        return {"role": row[0], "content": row[1] or "", "ts": float(row[2] or 0)} if row else None
+    except Exception:
+        return None
+
 def recent_msgs(n=3):
     try:
         rows = db(os.path.join(H, "state.db")).execute(
@@ -160,6 +182,26 @@ def fmt_next(iso):
         return f"{mins // 60} 小时后"
     return f"{mins // 1440} 天后"
 
+def wrap_text(d, text, fnt, max_w, max_lines=2):
+    """按像素宽度折行，超出用省略号"""
+    lines, cur = [], ""
+    for ch in text:
+        if d.textlength(cur + ch, font=fnt) <= max_w:
+            cur += ch
+        else:
+            lines.append(cur)
+            cur = ch
+            if len(lines) == max_lines:
+                break
+    if cur and len(lines) < max_lines:
+        lines.append(cur)
+    if len(lines) == max_lines and sum(len(x) for x in lines) < len(text):
+        last = lines[-1]
+        while d.textlength(last + "…", font=fnt) > max_w and len(last) > 1:
+            last = last[:-1]
+        lines[-1] = last + "…"
+    return lines
+
 def today_cost(rate=7.1):
     """今日花费：优先 actual_cost_usd，否则 estimated_cost_usd（美元）"""
     try:
@@ -199,7 +241,7 @@ def render(out, page=0):
     # 顶栏
     d.rectangle([0, 0, W, 34], fill=0)
     d.text((10, 7), "HERMES", font=font(18), fill=255)
-    now = datetime.datetime.now().strftime("%m-%d %H时")
+    now = datetime.datetime.now().strftime("%m-%d %H:%M")
     d.text((W - 26 - d.textlength(now, font=font(14)), 9), now, font=font(14), fill=255)
     d.ellipse([W - 16, 13, W - 8, 21], fill=255 if is_active() else 120)
 
@@ -217,29 +259,47 @@ def render(out, page=0):
         y += 16 + (26 if big else 22)
 
     if page == 0:
-        # 概览：状态 / 模型 / 今日花费 / 余额，留白优先
+        # 仪表盘：模型 / 进度 / 花费 / 余额 / 连接 / 时间
         active = is_active()
-        d.text((16, 74), "●" if active else "○", font=font(22), fill=0)
-        d.text((44, 72), "运行中" if active else "空闲", font=font(25), fill=0)
-
-        d.text((16, 116), "模型", font=font(12), fill=125)
-        mdl = model_name()
-        while d.textlength(mdl, font=font(27)) > W - 32 and len(mdl) > 4:
-            mdl = mdl[:-2] + "…"
-        d.text((16, 134), mdl, font=font(27), fill=0)
-
-        d.line([16, 190, W - 16, 190], fill=205)
-
         usd, cny = today_cost()
-        d.text((16, 202), "今日花费", font=font(12), fill=125)
-        d.text((16, 220), f"¥{cny:,.2f}", font=font(29), fill=0)
-        d.text((16, 256), f"≈ ${usd:.2f}", font=font(11, bold=False), fill=120)
-
         bal, granted = balance()
+        ltxt, lok = link_status()
+        m = last_reply()
+
+        # 模型 + 进度
+        d.text((16, 66), "模型", font=font(11), fill=125)
+        mdl = model_name()
+        while d.textlength(mdl, font=font(19)) > 250 and len(mdl) > 4:
+            mdl = mdl[:-2] + "…"
+        d.text((16, 82), mdl, font=font(19), fill=0)
+
+        d.text((16, 112), "当前进度", font=font(11), fill=125)
+        if active:
+            prog, sub = "正在处理", (f"最近活动 {ago(m['ts'])}" if m else "")
+        else:
+            prog, sub = "空闲 · 等待指令", (f"上次活动 {ago(m['ts'])}" if m else "")
+        d.text((16, 128), prog, font=font(19), fill=0)
+        d.text((16, 152), sub, font=font(10, bold=False), fill=125)
+
+        d.line([16, 172, W - 16, 172], fill=210)
+
+        # 花费 / 余额
+        d.text((16, 180), "今日花费", font=font(11), fill=125)
+        d.text((16, 196), f"¥{cny:,.2f}", font=font(26), fill=0)
+        d.text((16, 228), f"≈ ${usd:.2f}", font=font(10, bold=False), fill=125)
+
         bx = 232
-        d.text((bx, 202), "账户余额", font=font(12), fill=125)
-        d.text((bx, 220), f"¥{bal}", font=font(31), fill=0)
-        d.text((bx, 256), f"赠金 ¥{granted}", font=font(11, bold=False), fill=120)
+        d.text((bx, 180), "账户余额", font=font(11), fill=125)
+        d.text((bx, 196), f"¥{bal}", font=font(26), fill=0)
+        d.text((bx, 228), f"赠金 ¥{granted}", font=font(10, bold=False), fill=125)
+
+        # 页脚上一行：连接状态 + 最近回复首句
+        d.line([16, 244, W - 16, 244], fill=210)
+        d.text((16, 250), "●" if lok else "○", font=font(11), fill=0 if lok else 140)
+        d.text((30, 250), ltxt, font=font(11), fill=110)
+        if m:
+            body = re.sub(r"[*_`#>\s]+", " ", m["content"] or "").strip()[:15]
+            d.text((118, 250), f"最近 {ago(m['ts'])} · {body}…", font=font(11, bold=False), fill=110)
 
     elif page == 1:
         # 统计：近 7 日消息
@@ -335,6 +395,10 @@ if __name__ == "__main__":
     if a.daemon:
         while True:
             try:
+                try:
+                    open(os.path.join(BASE, "active.txt"), "w").write("1" if is_active() else "0")
+                except Exception:
+                    pass
                 render(a.out, read_page() if a.page is None else a.page)
             except Exception as e:
                 print("render error:", e, flush=True)

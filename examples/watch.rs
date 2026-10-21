@@ -70,6 +70,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|d| d.join("ui_state.txt").to_string_lossy().into_owned())
             .unwrap_or_else(|| "ui_state.txt".to_string())
     });
+    let dir = std::path::Path::new(&path).parent().map(|d| d.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let hb_path = dir.join("conn.txt");      // 心跳：渲染器据此判断"连接状态"
+    let act_path = dir.join("active.txt");   // 渲染器写的"是否在对话中"
     let pages: i32 = 4;
     let mut page: i32 = fs::read_to_string(&state_path)
         .ok()
@@ -79,6 +83,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 外层：断线后自动重连
     loop {
         let device = open_with_retry(&target).await;
+        let _ = fs::write(&hb_path, format!("{}", std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)));
+        let mut last_hb = Instant::now();
         let mut last_fp: u64 = 0;
         let mut last_push = Instant::now() - Duration::from_secs(600);
 
@@ -99,7 +106,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_secs(2)) => {
-                    if last_push.elapsed() < Duration::from_secs(300) {
+                    // 每 10 秒心跳一次（不碰设备，只写文件）
+                    if last_hb.elapsed() >= Duration::from_secs(10) {
+                        let _ = fs::write(&hb_path, format!("{}", std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)));
+                        last_hb = Instant::now();
+                    }
+                    // 对话进行中 60 秒刷一次（时间保持新鲜），空闲 5 分钟
+                    let active = fs::read_to_string(&act_path).map(|s| s.trim() == "1").unwrap_or(false);
+                    let interval = if active { 60 } else { 300 };
+                    if last_push.elapsed() < Duration::from_secs(interval) {
                         continue;
                     }
                     if let Ok(png) = fs::read(&path) {
