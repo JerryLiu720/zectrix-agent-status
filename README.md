@@ -135,6 +135,18 @@ cargo run --example watch -- <IP> status.png gray16
 
 装好之后是三个后台服务（LaunchAgent），用脚本管理：
 
+**最常用的一条命令**（人和 AI 都能直接调用）：
+
+```bash
+./scripts/zectrix pause    # 暂停：1–2 秒内断开设备，屏幕回主页
+./scripts/zectrix resume   # 恢复：重新连接并推送
+./scripts/zectrix status   # 看状态 / 进程 / 心跳
+```
+
+`pause` 只是断开设备连接并停止推送，进程保留、不涉及任何系统权限；删掉 `PAUSED` 文件即恢复。
+
+其他管理命令：
+
 ```bash
 ./scripts/status.sh     # 查看是否在运行、进程号、设备心跳多久前
 ./scripts/stop.sh       # 停止，并禁用下次登录自动启动

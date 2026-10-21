@@ -1,0 +1,22 @@
+#!/bin/bash
+# zectrix pause|resume|status —— AI 或人都可以直接调用
+DIR="$(cd "$(dirname "$0")/.." && pwd)"
+case "$1" in
+  pause)
+    touch "$DIR/PAUSED"
+    echo "已暂停：设备会在 1–2 秒内断开，屏幕回到主页。"
+    ;;
+  resume)
+    rm -f "$DIR/PAUSED"
+    echo "已恢复：正在重新连接设备…"
+    ;;
+  status)
+    if [ -f "$DIR/PAUSED" ]; then echo "状态：已暂停（未连接设备）"; else echo "状态：运行中"; fi
+    pgrep -fl "agent_status.py --daemon|zectrix-watch|examples/watch" | sed 's/^/  /' || echo "  （无进程）"
+    [ -f "$DIR/conn.txt" ] && echo "  设备心跳：$(( $(date +%s) - $(cat "$DIR/conn.txt") )) 秒前"
+    echo "  最近日志："; tail -3 "$DIR/logs/watch.log" 2>/dev/null | sed 's/^/    /'
+    ;;
+  *)
+    echo "用法：$(basename "$0") pause|resume|status"
+    ;;
+esac

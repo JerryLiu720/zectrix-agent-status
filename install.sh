@@ -182,24 +182,6 @@ fi
 
 sleep 4
 echo
-# 桌面双击快捷方式（方便手动开关）
-DESK="$HOME/Desktop"
-if [ -d "$DESK" ]; then
-  for pair in "关闭状态屏:stop.sh:正在关闭 Zectrix 状态屏" "开启状态屏:start.sh:正在开启 Zectrix 状态屏"; do
-    NAME="${pair%%:*}"; rest="${pair#*:}"; SCRIPT="${rest%%:*}"; NOTE="${rest#*:}"
-    cat > "$DESK/$NAME.command" <<CMD
-#!/bin/bash
-clear
-echo "=== $NOTE ==="
-"$INSTALL_DIR/scripts/$SCRIPT"
-echo
-read -n 1 -s -r -p "按任意键关闭此窗口…"
-CMD
-    chmod +x "$DESK/$NAME.command"
-  done
-  echo "    已在桌面创建「开启状态屏 / 关闭状态屏」双击快捷方式"
-fi
-
 echo "✅ 完成。屏幕应显示第 1 页（概览）。"
 echo "   日志: $INSTALL_DIR/logs/watch.log"
 echo "   卸载: launchctl bootout gui/$UID_N/com.zectrix.agentstatus.watch && launchctl bootout gui/$UID_N/com.zectrix.agentstatus.daemon"
