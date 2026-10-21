@@ -271,7 +271,27 @@ def render(out, page=0):
     d.rectangle([0, 0, W, 34], fill=0)
     d.text((10, 7), "HERMES", font=font(18), fill=255)
     now = datetime.datetime.now().strftime("%m-%d %H:%M")
-    d.text((W - 14 - d.textlength(now, font=font(14)), 9), now, font=font(14), fill=255)
+
+    # 右上角：电量图标（实心比例 + 百分比），从右往左排
+    pct, charging = battery()
+    icon_w, icon_h, iy = 20, 10, 12
+    ix = W - 14 - icon_w
+    d.rectangle([ix, iy, ix + icon_w - 4, iy + icon_h], outline=255, width=1)
+    d.rectangle([ix + icon_w - 3, iy + 3, ix + icon_w - 1, iy + icon_h - 3], fill=255)  # 电极
+    if pct is not None:
+        fw = int((icon_w - 5) * max(0, min(pct, 100)) / 100)
+        if fw > 0:
+            d.rectangle([ix + 2, iy + 2, ix + 1 + fw, iy + icon_h - 2], fill=255)
+
+    bx = ix - 6
+    if pct is not None:
+        low = pct <= 20 and not charging
+        ptxt = f"低 {pct}%" if low else (f"{pct}%" + ("+" if charging else ""))
+        pf = font(12) if low else font(12, bold=False)
+        d.text((bx - d.textlength(ptxt, font=pf), 9), ptxt, font=pf, fill=255)
+        bx -= d.textlength(ptxt, font=pf) + 8
+
+    d.text((bx - d.textlength(now, font=font(14)), 9), now, font=font(14), fill=255)
     # 顶栏不再放灯：时间右对齐到底
 
 
@@ -313,17 +333,8 @@ def render(out, page=0):
         # 标签行（右对齐）：模型  ● 已连接
         _ltxt, _lok = link_status()
         f_lbl = font(10, bold=False)
-        pct, charging = battery()
-        ltxt = ("已连接" if _lok else "断开")
+        ltxt = "已连接" if _lok else "断开"
         low = False
-        if _lok and pct is not None:
-            if pct <= 20 and not charging:
-                ltxt += f" 电量低 {pct}%"
-                low = True
-            else:
-                ltxt += f" {pct}%"
-                if charging:
-                    ltxt += "⚡"
         w_lbl = d.textlength("模型", font=f_lbl)
         w_lt = d.textlength(ltxt, font=f_lbl)
         dot_r = 4
