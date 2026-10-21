@@ -242,8 +242,13 @@ def render(out, page=0):
     d.rectangle([0, 0, W, 34], fill=0)
     d.text((10, 7), "HERMES", font=font(18), fill=255)
     now = datetime.datetime.now().strftime("%m-%d %H:%M")
-    d.text((W - 26 - d.textlength(now, font=font(14)), 9), now, font=font(14), fill=255)
-    d.ellipse([W - 16, 13, W - 8, 21], fill=255 if is_active() else 120)
+    d.text((W - 40 - d.textlength(now, font=font(14)), 9), now, font=font(14), fill=255)
+    # 右上角：设备连接指示灯（实心=已连接，空心=未连接）
+    _ltxt, _lok = link_status()
+    if _lok:
+        d.ellipse([W - 18, 12, W - 8, 22], fill=255)
+    else:
+        d.ellipse([W - 18, 12, W - 8, 22], outline=255, width=2)
 
     # 页标题
     d.text((10, 40), f"{page + 1}/{len(PAGES)}  {PAGES[page]}", font=font(14), fill=90)
@@ -259,47 +264,44 @@ def render(out, page=0):
         y += 16 + (26 if big else 22)
 
     if page == 0:
-        # 仪表盘：模型 / 进度 / 花费 / 余额 / 连接 / 时间
+        # 仪表盘：当前进度 → 模型 → 花费/余额 → 最近消息
         active = is_active()
         usd, cny = today_cost()
         bal, granted = balance()
-        ltxt, lok = link_status()
         m = last_reply()
 
-        # 模型 + 进度
-        d.text((16, 66), "模型", font=font(11), fill=125)
+        # 当前进度（最上面）
+        d.text((16, 66), "当前进度", font=font(11), fill=125)
+        prog = "正在处理" if active else "空闲 · 等待指令"
+        d.text((16, 80), prog, font=font(28), fill=0)
         mdl = model_name()
-        while d.textlength(mdl, font=font(19)) > 250 and len(mdl) > 4:
+        while d.textlength(mdl, font=font(11, bold=False)) > 120 and len(mdl) > 4:
             mdl = mdl[:-2] + "…"
-        d.text((16, 82), mdl, font=font(19), fill=0)
+        sub = (f"最近活动 {ago(m['ts'])}" if m else "暂无活动") + f" · {mdl}"
+        d.text((16, 120), sub, font=font(11, bold=False), fill=120)
 
-        d.text((16, 112), "当前进度", font=font(11), fill=125)
-        if active:
-            prog, sub = "正在处理", (f"最近活动 {ago(m['ts'])}" if m else "")
-        else:
-            prog, sub = "空闲 · 等待指令", (f"上次活动 {ago(m['ts'])}" if m else "")
-        d.text((16, 128), prog, font=font(19), fill=0)
-        d.text((16, 152), sub, font=font(10, bold=False), fill=125)
-
-        d.line([16, 172, W - 16, 172], fill=210)
+        d.line([16, 142, W - 16, 142], fill=210)
 
         # 花费 / 余额
-        d.text((16, 180), "今日花费", font=font(11), fill=125)
-        d.text((16, 196), f"¥{cny:,.2f}", font=font(26), fill=0)
-        d.text((16, 228), f"≈ ${usd:.2f}", font=font(10, bold=False), fill=125)
+        d.text((16, 150), "今日花费", font=font(11), fill=125)
+        d.text((16, 166), f"¥{cny:,.2f}", font=font(29), fill=0)
+        d.text((16, 204), f"≈ ${usd:.2f}", font=font(10, bold=False), fill=125)
 
         bx = 232
-        d.text((bx, 180), "账户余额", font=font(11), fill=125)
-        d.text((bx, 196), f"¥{bal}", font=font(26), fill=0)
-        d.text((bx, 228), f"赠金 ¥{granted}", font=font(10, bold=False), fill=125)
+        d.text((bx, 150), "账户余额", font=font(11), fill=125)
+        d.text((bx, 166), f"¥{bal}", font=font(29), fill=0)
+        d.text((bx, 204), f"赠金 ¥{granted}", font=font(10, bold=False), fill=125)
 
-        # 页脚上一行：连接状态 + 最近回复首句
-        d.line([16, 244, W - 16, 244], fill=210)
-        d.text((16, 250), "●" if lok else "○", font=font(11), fill=0 if lok else 140)
-        d.text((30, 250), ltxt, font=font(11), fill=110)
+        d.line([16, 224, W - 16, 224], fill=210)
+
+        # 最近消息（最下面）
+        d.text((16, 231), "最近消息", font=font(10, bold=False), fill=125)
         if m:
-            body = re.sub(r"[*_`#>\s]+", " ", m["content"] or "").strip()[:15]
-            d.text((118, 250), f"最近 {ago(m['ts'])} · {body}…", font=font(11, bold=False), fill=110)
+            body = re.sub(r"[*_`#>\s]+", " ", m["content"] or "").strip()
+            body = re.sub(r"^[-\s]+", "", body)[:22]
+            d.text((16, 245), f"{ago(m['ts'])} · {body}…", font=font(12), fill=0)
+        else:
+            d.text((16, 245), "暂无记录", font=font(12), fill=110)
 
     elif page == 1:
         # 统计：近 7 日消息
