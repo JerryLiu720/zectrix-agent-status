@@ -1,20 +1,14 @@
-//! 监视 PNG 变化并刷新到设备，**保持连接**；断线/被占用时自动重连。
+//! 监视 PNG 变化并刷新到设备，保持连接，接收按键。
+//! 事件读取与图像推送**并发**：推送（2–4 秒）期间也不会漏按键。
 //! 用法：cargo run --example watch -- <IP 或设备ID> <PNG> [mono|gray4|gray16]
 use std::{
     fs,
+    path::PathBuf,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
-/// FNV-1a 指纹：判断图片内容是否真的变了（比 mtime 可靠）
-fn fingerprint(bytes: &[u8]) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for &b in bytes {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    h
-}
-
+use tokio::sync::mpsc;
 use zectrix_sdk::{Device, Event, ImageFormat, Key, KeyAction, OpenOptions};
 
 fn parse_format(s: &str) -> Result<ImageFormat, String> {
@@ -26,7 +20,24 @@ fn parse_format(s: &str) -> Result<ImageFormat, String> {
     }
 }
 
-/// 打开设备；失败时每 2 秒重试（设备被占用/租约未释放/Busy 都能自愈）
+/// FNV-1a 指纹：判断图片内容是否真的变了（比 mtime 可靠）
+fn fingerprint(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in bytes {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// 打开设备；失败时每 2 秒重试（被占用 / 断线 / 租约未释放都能自愈）
 async fn open_with_retry(target: &str) -> Device {
     let mut attempt = 0u32;
     loop {
@@ -62,21 +73,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fmt_name = args.get(3).map(String::as_str).unwrap_or("gray16").to_string();
     parse_format(&fmt_name)?;
 
-    // 页面状态：纯文本文件（供 Python 渲染器读取，零依赖）
-    // 页码文件放在 PNG 同目录（与渲染器约定一致，避免 HOME 拼接错误）
+    // 所有状态文件与 PNG 同目录（渲染器按同样约定读写）
+    let dir = std::path::Path::new(&path)
+        .parent()
+        .map(|d| d.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
     let state_path = std::env::var("ZECTRIX_UI_STATE").unwrap_or_else(|_| {
-        std::path::Path::new(&path)
-            .parent()
-            .map(|d| d.join("ui_state.txt").to_string_lossy().into_owned())
-            .unwrap_or_else(|| "ui_state.txt".to_string())
+        dir.join("ui_state.txt").to_string_lossy().into_owned()
     });
-    let dir = std::path::Path::new(&path).parent().map(|d| d.to_path_buf())
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let hb_path = dir.join("conn.txt");      // 心跳：渲染器据此判断"连接状态"
-    let act_path = dir.join("active.txt");   // 渲染器写的"是否在对话中"
+    let hb_path = dir.join("conn.txt"); // 心跳：渲染器据此判断连接状态
+    let act_path = dir.join("active.txt"); // 渲染器写的"是否在对话中"
     let bat_path = dir.join("battery.txt"); // 电量：百分比,充电中(1/0)
-    // 页数由渲染器写入 pages.txt（默认 4），避免两边写死不同步
-    let pages_path = dir.join("pages.txt");
+    let pages_path = dir.join("pages.txt"); // 渲染器写的页数
+
     let pages: i32 = fs::read_to_string(&pages_path)
         .ok()
         .and_then(|s| s.trim().parse().ok())
@@ -89,21 +98,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 外层：断线后自动重连
     loop {
-        let device = open_with_retry(&target).await;
-        let _ = fs::write(&hb_path, format!("{}", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)));
+        let device = Arc::new(open_with_retry(&target).await);
+
+        // 独立协程持续消费事件：推送图像时按键也不会丢
+        let (tx, mut rx) = mpsc::channel::<Event>(128);
+        {
+            let d = device.clone();
+            tokio::spawn(async move {
+                loop {
+                    match d.next_event().await {
+                        Ok(Some(ev)) => {
+                            if tx.send(ev).await.is_err() {
+                                break;
+                            }
+                        }
+                        _ => break,
+                    }
+                }
+            });
+        }
+
+        let _ = fs::write(&hb_path, format!("{}", unix_now()));
+
+        // 连接后读一次电量
         if let Ok(st) = device.status().await {
             let pct = st.battery_percent.unwrap_or(0);
             let ch = if st.charging.unwrap_or(false) { 1 } else { 0 };
             let _ = fs::write(&bat_path, format!("{pct},{ch}"));
             println!("电量 {pct}%{}", if ch == 1 { "（充电中）" } else { "" });
         }
-        let mut last_hb = Instant::now();
-        let mut last_bat = Instant::now();
-        let mut pending = false;   // 有按键待推送
-        let mut last_key: Option<(Key, Instant)> = None;
+
         let mut last_fp: u64 = 0;
         let mut last_push = Instant::now() - Duration::from_secs(600);
+        let mut pending = false;
+        let mut last_key: Option<(Key, Instant)> = None;
+        let mut last_hb = Instant::now() - Duration::from_secs(11);
+        let mut last_bat = Instant::now();
 
         if let Ok(png) = fs::read(&path) {
             match device.show_with_format(&png, parse_format(&fmt_name)?).await {
@@ -118,14 +148,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("首版图片读取失败，等待文件出现…");
         }
 
-        // 内层：接收按键 + 兜底刷新（数据类变化每 5 分钟最多一次）
+        // 内层：按键（来自队列）+ 周期性检查
         loop {
             tokio::select! {
-                _ = tokio::time::sleep(Duration::from_millis(300)) => {
-                    // 每 10 秒心跳一次（不碰设备，只写文件）
+                _ = tokio::time::sleep(Duration::from_millis(200)) => {
                     if last_hb.elapsed() >= Duration::from_secs(10) {
-                        let _ = fs::write(&hb_path, format!("{}", std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)));
+                        let _ = fs::write(&hb_path, format!("{}", unix_now()));
                         last_hb = Instant::now();
                     }
                     if last_bat.elapsed() >= Duration::from_secs(300) {
@@ -136,37 +164,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         last_bat = Instant::now();
                     }
-                    // 对话进行中 60 秒刷一次（时间保持新鲜），空闲 5 分钟
-                    let active = fs::read_to_string(&act_path).map(|s| s.trim() == "1").unwrap_or(false);
-                    let interval = if active { 60 } else { 300 };
-                    // 连按合并：最后一次按键后静默 300ms 再推，避免刷中间页
+
                     if pending {
+                        // 连按合并：最后一次按键后静默 300ms 再推
                         if let Some((_, lt)) = last_key {
                             if lt.elapsed() < Duration::from_millis(300) {
                                 continue;
                             }
                         }
+                    } else {
+                        let active = fs::read_to_string(&act_path)
+                            .map(|s| s.trim() == "1")
+                            .unwrap_or(false);
+                        let interval = if active { 60 } else { 300 };
+                        if last_push.elapsed() < Duration::from_secs(interval) {
+                            continue;
+                        }
                     }
-                    if !pending && last_push.elapsed() < Duration::from_secs(interval) {
-                        continue;
-                    }
+
                     if let Ok(png) = fs::read(&path) {
                         let fp = fingerprint(&png);
                         if fp != last_fp {
                             match device.show_with_format(&png, parse_format(&fmt_name)?).await {
                                 Ok(_) => {
                                     println!("已刷新{}", if pending { "（按键）" } else { "" });
-                                    last_fp = fp; last_push = Instant::now(); pending = false;
+                                    last_fp = fp;
+                                    last_push = Instant::now();
+                                    pending = false;
                                 }
                                 Err(e) => { println!("刷新失败: {e}"); break; }
                             }
+                        } else if pending {
+                            pending = false;
                         }
                     }
                 }
-                ev = device.next_event() => {
-                    match ev {
-                        Ok(Some(Event::Key { key, action })) => {
-                            println!("按键 {key:?}: {action:?}");
+                maybe_ev = rx.recv() => {
+                    match maybe_ev {
+                        Some(Event::Key { key, action }) => {
                             // 确认键（短按/长按）= 立即重推当前页
                             if matches!(key, Key::Confirm) {
                                 if let Ok(png) = fs::read(&path) {
@@ -175,19 +210,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             println!("已刷新（确认键）");
                                             last_fp = fingerprint(&png);
                                             last_push = Instant::now();
+                                            pending = false;
                                         }
                                         Err(e) => println!("刷新失败: {e}"),
                                     }
                                 }
                                 continue;
                             }
-                            // 只响应短按；长按会产生 Long 事件，若映射成跳页会像"乱跳"，这里直接忽略
+                            // 只响应短按；长按的 Long 忽略（映射成跳页会像乱跳）
                             match (action, key) {
                                 (KeyAction::Short, Key::Up) => page = (page + pages - 1) % pages,
                                 (KeyAction::Short, Key::Down) => page = (page + 1) % pages,
                                 _ => continue,
                             }
-                            // 去抖：同方向 60ms 内的重复事件视为硬件抖动（人手连按间隔通常 >80ms）
+                            // 去抖：同键 60ms 内重复视为硬件抖动
                             if let Some((lk, lt)) = last_key {
                                 if lk == key && lt.elapsed() < Duration::from_millis(60) {
                                     println!("忽略抖动 {key:?}");
@@ -195,19 +231,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                             last_key = Some((key, Instant::now()));
-                            {
-                                let _ = fs::write(&state_path, page.to_string());
-                                println!("页面 -> {}", page);
-
-                                // 不阻塞：交给 300ms 的 tick 检测新图后立即推送，
-                                // 这样连续按键不会丢，也不会出现"按两次才翻一页"
-                                pending = true;
-                            }
+                            let _ = fs::write(&state_path, page.to_string());
+                            println!("按键 {key:?} → 第 {} 页", page + 1);
+                            pending = true;
                         }
-                        Ok(Some(Event::Disconnected { .. })) => { println!("设备已断开，准备重连…"); break; }
-                        Ok(Some(_)) => {}
-                        Ok(None) => break,
-                        Err(e) => { println!("事件错误: {e}，准备重连…"); break; }
+                        Some(Event::Disconnected { .. }) => { println!("设备已断开，准备重连…"); break; }
+                        Some(_) => {}
+                        None => { println!("事件流结束，准备重连…"); break; }
                     }
                 }
             }
