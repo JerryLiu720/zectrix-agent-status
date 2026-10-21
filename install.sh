@@ -62,7 +62,9 @@ fi
 echo "==> [4/6] 编译 watch（首次需编译 Opus，约 1-2 分钟）"
 cp -f "$APP_DIR/examples/watch.rs" "$SDK_DIR/examples/watch.rs"
 ( cd "$SDK_DIR" && cargo build --release --locked --example watch )
-WATCH_BIN="$SDK_DIR/target/release/examples/watch"
+mkdir -p "$INSTALL_DIR/bin"
+install -m 755 "$SDK_DIR/target/release/examples/watch" "$INSTALL_DIR/bin/zectrix-watch"
+WATCH_BIN="$INSTALL_DIR/bin/zectrix-watch"
 
 echo "==> 自检（渲染四页并校验尺寸）"
 "$PY" "$INSTALL_DIR/agent_status.py" --selftest || { echo "自检失败，已中止"; exit 1; }

@@ -24,6 +24,7 @@ STATE = os.path.join(BASE, "ui_state.json")
 BAL_CACHE = os.path.join(BASE, ".balance_cache.json")
 PAGES = ["概览", "统计", "日程", "日志"]
 DEMO = False   # True = 当前渲染的是示例数据
+VERSION = "0.1.0"
 _last_png = None   # 内容去重：没变化就不写文件，避免墨水屏频繁刷新
 
 from PIL import Image, ImageDraw, ImageFont
@@ -314,10 +315,15 @@ def render(out, page=0):
         f_lbl = font(10, bold=False)
         pct, charging = battery()
         ltxt = ("已连接" if _lok else "断开")
+        low = False
         if _lok and pct is not None:
-            ltxt += f" {pct}%"
-            if charging:
-                ltxt += "⚡"
+            if pct <= 20 and not charging:
+                ltxt += f" 电量低 {pct}%"
+                low = True
+            else:
+                ltxt += f" {pct}%"
+                if charging:
+                    ltxt += "⚡"
         w_lbl = d.textlength("模型", font=f_lbl)
         w_lt = d.textlength(ltxt, font=f_lbl)
         dot_r = 4
@@ -330,7 +336,8 @@ def render(out, page=0):
             d.ellipse([dcx - dot_r, dcy - dot_r, dcx + dot_r, dcy + dot_r], fill=0)
         else:
             d.ellipse([dcx - dot_r, dcy - dot_r, dcx + dot_r, dcy + dot_r], outline=0, width=2)
-        d.text((dcx + dot_r + 5, 66), ltxt, font=f_lbl, fill=125)
+        d.text((dcx + dot_r + 5, 66), ltxt,
+               font=(font(11) if low else f_lbl), fill=(0 if low else 125))
         # 模型名（右对齐，大字）
         d.text((W - 16 - d.textlength(mdl, font=font(15)), 80), mdl, font=font(15), fill=0)
 
@@ -408,7 +415,7 @@ def render(out, page=0):
     for i in range(len(PAGES)):
         cx = 16 + i * 14
         d.ellipse([cx, HT - 22, cx + 7, HT - 15], fill=0 if i == page else 200)
-    hint = "示例数据 · ↑↓ 翻页" if DEMO else "↑↓ 翻页"
+    hint = f"v{VERSION} · " + ("示例数据 · " if DEMO else "") + "↑↓ 翻页"
     d.text((W - 14 - d.textlength(hint, font=font(12)), HT - 24), hint, font=font(12), fill=110)
 
     import io
