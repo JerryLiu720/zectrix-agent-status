@@ -132,6 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut last_push = Instant::now() - Duration::from_secs(600);
         let mut pending = false;
         let mut last_key: Option<(Key, Instant)> = None;
+        let mut last_ev: Option<Instant> = None;   // 诊断：事件间隔
         let mut last_hb = Instant::now() - Duration::from_secs(11);
         let mut last_bat = Instant::now();
 
@@ -202,6 +203,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 maybe_ev = rx.recv() => {
                     match maybe_ev {
                         Some(Event::Key { key, action }) => {
+                            let gap = last_ev.map(|t| t.elapsed().as_millis()).unwrap_or(0);
+                            last_ev = Some(Instant::now());
+                            println!("  事件 {key:?} {action:?} 距上次 {gap} ms");
                             // 确认键（短按/长按）= 立即重推当前页
                             if matches!(key, Key::Confirm) {
                                 if let Ok(png) = fs::read(&path) {
@@ -223,13 +227,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 (KeyAction::Short, Key::Down) => page = (page + 1) % pages,
                                 _ => continue,
                             }
-                            // 去抖：同键 60ms 内重复视为硬件抖动
-                            if let Some((lk, lt)) = last_key {
-                                if lk == key && lt.elapsed() < Duration::from_millis(60) {
-                                    println!("忽略抖动 {key:?}");
-                                    continue;
-                                }
-                            }
+                            // 不按到达时间去抖：推送期间的事件会被 SDK 排队，
+                            // 结束后同一毫秒涌入（间隔 0ms），时间去抖会误杀真实按键。
+                            // 实测设备一次按压只发一个事件，无需去抖。
                             last_key = Some((key, Instant::now()));
                             let _ = fs::write(&state_path, page.to_string());
                             println!("按键 {key:?} → 第 {} 页", page + 1);
