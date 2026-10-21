@@ -125,6 +125,21 @@ cargo run --example watch -- <IP> status.png gray16
 
 换别的 agent，只要把 `week_counts()` / `today_cost()` / `cron_jobs()` 换掉即可，渲染层不用动。
 
+## 停止 / 启动 / 卸载
+
+装好之后是三个后台服务（LaunchAgent），用脚本管理：
+
+```bash
+./scripts/status.sh     # 查看是否在运行、进程号、设备心跳多久前
+./scripts/stop.sh       # 停止：设备几秒后回到主页
+./scripts/start.sh      # 重新启动
+./scripts/uninstall.sh  # 卸载：停止并删除 LaunchAgent（保留安装目录）
+```
+
+停止后不会影响其他软件；这三个服务只做两件事：读本机状态文件渲染 PNG、通过局域网推给 NOTE4（不联网上传任何数据）。
+
+**只想临时腾出设备**（比如用官方 App 控制屏幕）→ 运行 `stop.sh` 即可，之后再 `start.sh`。
+
 ## 常见问题
 
 | 现象 | 原因 / 解法 |
