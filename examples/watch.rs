@@ -174,9 +174,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 pending_since = None;
                             }
                         }
-                        // 连按合并：最后一次按键后静默 300ms 再推
+                        // 连按合并：最后一次按键后静默 1.2 秒再推。
+                        // 原因：设备刷新约 2.5 秒，期间只能缓存约 2 个按键；
+                        // 若在连按中途开始刷新，后续按键会被设备丢弃。
                         if let Some((_, lt)) = last_key {
-                            if lt.elapsed() < Duration::from_millis(300) {
+                            if lt.elapsed() < Duration::from_millis(1200) {
                                 continue;
                             }
                         }
