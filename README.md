@@ -42,7 +42,18 @@
         └──────────────── ui_state.txt（页码，与 PNG 同目录）◀── 按键 ↑/↓ ──┘
 ```
 
-## 安装（3 步）
+## 用 AI 安装（推荐）
+
+把仓库地址交给电脑上的 AI（Codex / Claude Code / Cursor / Hermes），它会读 README、装依赖、编译并注册开机自启：
+
+```
+帮我在这台 macOS 上安装 GitHub 仓库 JerryLiu720/zectrix-agent-status：
+先读 README，缺 cmake 用 pip 装（不要用 brew），缺 Rust 用 rustup；
+git clone 后执行 ./install.sh <设备IP>；完成后确认 NOTE4 显示第 1 页。
+排错：NoDevice 改用 IP 直连；Busy 等 2 秒自动重试。
+```
+
+## 安装（手动 3 步）
 
 ```bash
 ./install.sh 192.168.1.100      # 设备需与电脑同一 Wi-Fi，并开启「待机保持 Wi-Fi」
