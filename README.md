@@ -5,6 +5,8 @@
 
 ![preview](screenshots/preview.png)
 
+![四页演示](screenshots/demo.gif)
+
 ## 和社区现有项目的区别
 
 | 现有项目 | 它们做的 | 这个项目 |
@@ -31,6 +33,8 @@
 - **保持画面**：推完不关闭连接（官方 `show` 示例会 `close()`，设备立刻回主页）
 - **自动重连**：设备被占用 / 断线 / 租约未释放时每 2 秒重试
 - **护屏节流**：翻页立即刷新；数据类变化 5 分钟最多一次；内容不变绝不重绘
+- **设备电量**：连接时与每 5 分钟读取一次电量与充电状态，显示在模型旁
+- **零配置可试**：读不到本机助手状态时自动进入示例数据模式（页脚标注"示例数据"）
 - **十六灰阶**：中文用 Hiragino Sans GB 渲染，400×300 满屏
 
 ## 架构
@@ -73,6 +77,8 @@ git clone 后执行 ./install.sh <设备IP>；完成后确认 NOTE4 显示第 1 
 
 ```bash
 python3 agent_status.py --page 1          # 只渲染第 2 页到 status.png
+python3 agent_status.py --selftest        # 渲染四页并校验尺寸（安装后自检）
+python3 agent_status.py --demo            # 用示例数据渲染
 cargo run --example watch -- <IP> status.png gray16
 ```
 

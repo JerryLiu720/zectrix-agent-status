@@ -64,6 +64,9 @@ cp -f "$APP_DIR/examples/watch.rs" "$SDK_DIR/examples/watch.rs"
 ( cd "$SDK_DIR" && cargo build --release --locked --example watch )
 WATCH_BIN="$SDK_DIR/target/release/examples/watch"
 
+echo "==> 自检（渲染四页并校验尺寸）"
+"$PY" "$INSTALL_DIR/agent_status.py" --selftest || { echo "自检失败，已中止"; exit 1; }
+
 echo "==> [5/6] 生成 LaunchAgents（开机自启）"
 cat > "$LA/com.zectrix.agentstatus.daemon.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

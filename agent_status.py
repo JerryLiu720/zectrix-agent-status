@@ -19,10 +19,11 @@ import os, sys, json, sqlite3, glob, argparse, datetime, re, time, urllib.reques
 
 H = os.path.expanduser("~/.hermes")
 W, HT = 400, 300
-BASE = os.path.expanduser("~/zectrix-sdk")
+BASE = os.environ.get("ZECTRIX_BASE") or os.path.dirname(os.path.abspath(__file__))
 STATE = os.path.join(BASE, "ui_state.json")
 BAL_CACHE = os.path.join(BASE, ".balance_cache.json")
 PAGES = ["概览", "统计", "日程", "日志"]
+DEMO = False   # True = 当前渲染的是示例数据
 _last_png = None   # 内容去重：没变化就不写文件，避免墨水屏频繁刷新
 
 from PIL import Image, ImageDraw, ImageFont
@@ -70,6 +71,17 @@ def last_msg():
         return {"role": row[0], "content": row[1] or "", "ts": float(row[2] or 0)} if row else None
     except Exception:
         return None
+
+def battery():
+    """设备电量与充电状态（由 watch 定期写入 battery.txt）"""
+    try:
+        s = open(os.path.join(BASE, "battery.txt")).read().strip()
+        parts = s.split(",")
+        pct = int(parts[0])
+        charging = len(parts) > 1 and parts[1].strip() == "1"
+        return pct, charging
+    except Exception:
+        return None, False
 
 def link_status():
     """读取 watch 写的 conn.txt 心跳，判断设备连接状态"""
@@ -228,6 +240,22 @@ def week_counts():
     except Exception:
         return [0] * 7
 
+def turn_state():
+    """返回 (是否在处理, 本轮已运行秒数)。依据 Hermes 的 session_turn_leases。
+    租约存在且未过期 = 正在跑一轮；否则空闲。"""
+    try:
+        c = db(os.path.join(H, "state.db"))
+        row = c.execute("""select acquired_at, expires_at from session_turn_leases
+                           order by rowid desc limit 1""").fetchone()
+        if row:
+            acq, exp = float(row[0] or 0), float(row[1] or 0)
+            now = time.time()
+            if exp > now and now - acq < 1800:
+                return True, now - acq
+    except Exception:
+        pass
+    return False, 0.0
+
 def is_active():
     m = last_msg()
     return bool(m and (time.time() - m["ts"]) < 120)
@@ -261,16 +289,20 @@ def render(out, page=0):
 
     if page == 0:
         # 仪表盘：当前进度 → 模型 → 花费/余额 → 最近消息
-        active = is_active()
+        active, elapsed = turn_state()
         usd, cny = today_cost()
         bal, granted = balance()
         m = last_reply()
 
-        # 当前进度（最上面）
+        # 当前进度（最上面）：真实租约 → 处理中 + 本轮耗时
         d.text((16, 66), "当前进度", font=font(11), fill=125)
         prog = "正在处理" if active else "空闲 · 等待指令"
         d.text((16, 80), prog, font=font(28), fill=0)
-        sub = f"最近活动 {ago(m['ts'])}" if m else "暂无活动"
+        if active:
+            secs = int(elapsed)
+            sub = f"本轮 {secs // 60} 分 {secs % 60} 秒" if secs >= 60 else f"本轮 {secs} 秒"
+        else:
+            sub = f"上次回复 {ago(m['ts'])}" if m else "暂无回复"
         d.text((16, 120), sub, font=font(11, bold=False), fill=120)
 
         # 右侧：模型（右对齐，与"当前进度"同一视觉带）
@@ -280,7 +312,12 @@ def render(out, page=0):
         # 标签行（右对齐）：模型  ● 已连接
         _ltxt, _lok = link_status()
         f_lbl = font(10, bold=False)
-        ltxt = "已连接" if _lok else "断开"
+        pct, charging = battery()
+        ltxt = ("已连接" if _lok else "断开")
+        if _lok and pct is not None:
+            ltxt += f" {pct}%"
+            if charging:
+                ltxt += "⚡"
         w_lbl = d.textlength("模型", font=f_lbl)
         w_lt = d.textlength(ltxt, font=f_lbl)
         dot_r = 4
@@ -371,7 +408,7 @@ def render(out, page=0):
     for i in range(len(PAGES)):
         cx = 16 + i * 14
         d.ellipse([cx, HT - 22, cx + 7, HT - 15], fill=0 if i == page else 200)
-    hint = "↑↓ 翻页"
+    hint = "示例数据 · ↑↓ 翻页" if DEMO else "↑↓ 翻页"
     d.text((W - 14 - d.textlength(hint, font=font(12)), HT - 24), hint, font=font(12), fill=110)
 
     import io
@@ -398,6 +435,35 @@ def clean_text(s, limit=None):
         s = s[:limit] + "…"
     return s
 
+def enable_demo():
+    """把数据源替换为示例值：用于生成截图、给没有 Hermes 的人预览"""
+    global DEMO
+    DEMO = True
+    global model_name, today_cost, balance, count_facts, count_skills
+    global week_counts, cron_jobs, last_reply, today_msg_count, link_status, turn_state, recent_msgs
+
+    now = time.time()
+    model_name = lambda: "deepseek-v4"
+    today_cost = lambda rate=7.1: (0.86, 0.86 * rate)
+    balance = lambda ttl=600: ("42.00", "12.00")
+    count_facts = lambda: 186
+    count_skills = lambda: 34
+    week_counts = lambda: [312, 118, 26, 0, 141, 9, 274]
+    cron_jobs = lambda: [
+        {"name": "每周记忆抽取", "next": (datetime.datetime.now() + datetime.timedelta(days=3)).isoformat(), "schedule": "0 23 * * 0"},
+        {"name": "每月体检", "next": (datetime.datetime.now() + datetime.timedelta(days=10)).isoformat(), "schedule": "0 23 1 * *"},
+    ]
+    last_reply = lambda: {"role": "assistant", "content": "已经把最近 7 天的对话整理成摘要，放在第 2 页。", "ts": now - 95}
+    today_msg_count = lambda: 274
+    link_status = lambda: ("已连接", True)
+    turn_state = lambda: (True, 42.0)
+    recent_msgs = lambda n=3: [
+        {"role": "assistant", "content": "已经把最近 7 天的对话整理成摘要。", "ts": now - 95},
+        {"role": "user", "content": "帮我看一下这周的账单。", "ts": now - 260},
+        {"role": "assistant", "content": "本周支出比上周少了一些。", "ts": now - 300},
+    ]
+    print("（示例数据模式）")
+
 def read_page():
     # watch.rs 写纯文本页码（零依赖）；兼容旧的 ui_state.json
     for path, kind in [(os.path.join(BASE, "ui_state.txt"), "txt"), (STATE, "json")]:
@@ -416,13 +482,31 @@ if __name__ == "__main__":
     ap.add_argument("--daemon", action="store_true")
     ap.add_argument("--interval", type=float, default=2.0)
     ap.add_argument("--activity", help="(兼容旧参数，忽略)")
+    ap.add_argument("--demo", action="store_true", help="用示例数据渲染（截图/他人试用）")
+    ap.add_argument("--selftest", action="store_true", help="渲染全部页面并校验尺寸")
     a = ap.parse_args()
+
+    if a.demo or (not a.selftest and not os.path.exists(os.path.join(H, "state.db"))):
+        enable_demo()
+
+    if a.selftest:
+        import tempfile
+        ok = True
+        for i in range(len(PAGES)):
+            out = os.path.join(tempfile.gettempdir(), f"zectrix_selftest_{i}.png")
+            render(out, i)
+            with Image.open(out) as im:
+                good = im.size == (W, HT)
+            ok = ok and good and os.path.getsize(out) > 1000
+            print(f"  page {i+1} {PAGES[i]}: {'OK' if good else 'FAIL'} ({os.path.getsize(out)} B)")
+        print("selftest", "通过" if ok else "失败")
+        raise SystemExit(0 if ok else 1)
 
     if a.daemon:
         while True:
             try:
                 try:
-                    open(os.path.join(BASE, "active.txt"), "w").write("1" if is_active() else "0")
+                    open(os.path.join(BASE, "active.txt"), "w").write("1" if turn_state()[0] else "0")
                 except Exception:
                     pass
                 render(a.out, read_page() if a.page is None else a.page)

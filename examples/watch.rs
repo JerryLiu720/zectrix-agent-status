@@ -74,6 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     let hb_path = dir.join("conn.txt");      // 心跳：渲染器据此判断"连接状态"
     let act_path = dir.join("active.txt");   // 渲染器写的"是否在对话中"
+    let bat_path = dir.join("battery.txt"); // 电量：百分比,充电中(1/0)
     let pages: i32 = 4;
     let mut page: i32 = fs::read_to_string(&state_path)
         .ok()
@@ -85,7 +86,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let device = open_with_retry(&target).await;
         let _ = fs::write(&hb_path, format!("{}", std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)));
+        if let Ok(st) = device.status().await {
+            let pct = st.battery_percent.unwrap_or(0);
+            let ch = if st.charging.unwrap_or(false) { 1 } else { 0 };
+            let _ = fs::write(&bat_path, format!("{pct},{ch}"));
+            println!("电量 {pct}%{}", if ch == 1 { "（充电中）" } else { "" });
+        }
         let mut last_hb = Instant::now();
+        let mut last_bat = Instant::now();
         let mut last_fp: u64 = 0;
         let mut last_push = Instant::now() - Duration::from_secs(600);
 
@@ -111,6 +119,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = fs::write(&hb_path, format!("{}", std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)));
                         last_hb = Instant::now();
+                    }
+                    if last_bat.elapsed() >= Duration::from_secs(300) {
+                        if let Ok(st) = device.status().await {
+                            let pct = st.battery_percent.unwrap_or(0);
+                            let ch = if st.charging.unwrap_or(false) { 1 } else { 0 };
+                            let _ = fs::write(&bat_path, format!("{pct},{ch}"));
+                        }
+                        last_bat = Instant::now();
                     }
                     // 对话进行中 60 秒刷一次（时间保持新鲜），空闲 5 分钟
                     let active = fs::read_to_string(&act_path).map(|s| s.trim() == "1").unwrap_or(false);
