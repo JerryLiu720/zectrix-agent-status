@@ -87,6 +87,7 @@ cargo run --example watch -- <IP> status.png gray16
 | 中文显示成方块 | 本机 Pillow 打不开 `PingFang.ttc`，已改用 `Hiragino Sans GB` |
 | 按键没反应 | 页码文件必须与 PNG **同目录**；本版已内置，勿改路径 |
 | 屏幕回主页 | 推送进程退出后设备会回主页；用 install.sh 装成 LaunchAgent 可常驻 |
+| 改了 `agent_status.py` 但屏幕没变 | Python 不热加载，必须重启 daemon：`./restart.sh` |
 
 ## 已知限制
 
