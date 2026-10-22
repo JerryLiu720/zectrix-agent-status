@@ -425,11 +425,11 @@ def render(out, page=0):
         while d.textlength(mdl, font=f_mdl) > 170 and len(mdl) > 4:
             mdl = mdl[:-2] + "…"
         mx = W - 16 - d.textlength(mdl, font=f_mdl)
-        d.text((mx, 66), "模型", font=f_lbl, fill=125)
-        d.text((mx, 76), mdl, font=f_mdl, fill=0)
+        d.text((mx, 64), "模型", font=f_lbl, fill=125)
+        d.text((mx, 82), mdl, font=f_mdl, fill=0)
         sub = f"今日 {today_msg_count()} 条消息"
         sx = min(mx, W - 16 - d.textlength(sub, font=font(11)))
-        d.text((sx, 106), sub, font=font(11), fill=125)
+        d.text((sx, 112), sub, font=font(11), fill=125)
 
         d.line([16, 138, W - 16, 138], fill=210)
 
