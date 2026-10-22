@@ -173,6 +173,31 @@ def today_msg_count():
     except Exception:
         return 0
 
+WEEK_CN = ["日", "一", "二", "三", "四", "五", "六"]
+
+def cron_text(expr):
+    """把常见 cron 写成中文；不认识的规则原样返回。"""
+    parts = (expr or "").split()
+    if len(parts) != 5:
+        return expr or ""
+    mi, hh, dom, mon, dow = parts
+    if not (mi.isdigit() and hh.isdigit()):
+        if mi.startswith("*/") and hh == "*":
+            return f"每 {mi[2:]} 分钟"
+        if mi.isdigit() and hh.startswith("*/"):
+            return f"每 {hh[2:]} 小时"
+        return expr
+    t = f"{int(hh):02d}:{int(mi):02d}"
+    if dow == "1-5" and dom == "*" and mon == "*":
+        return f"工作日 {t}"
+    if dow.isdigit() and dom == "*" and mon == "*":
+        return f"每周{WEEK_CN[int(dow) % 7]} {t}"
+    if dom.isdigit() and dow == "*" and mon == "*":
+        return f"每月 {int(dom)} 日 {t}"
+    if dom == "*" and dow == "*" and mon == "*":
+        return f"每天 {t}"
+    return expr
+
 def cron_jobs():
     v = sget("cron")
     if v is not None: return v
@@ -517,7 +542,7 @@ def render(out, page=0):
         if not jobs:
             line("定时任务", "无")
         for j in jobs[:3]:
-            line(j["name"][:16], f"{fmt_next(j['next'])}  ({j['schedule']})")
+            line(j["name"][:16], f"{fmt_next(j['next'])} · {cron_text(j['schedule'])}")
 
     else:
         for m in recent_msgs(3):
