@@ -80,11 +80,7 @@ git clone 后执行 ./install.sh <设备IP>；完成后确认 NOTE4 显示第 1 
 ## 安装（手动 3 步）
 
 ```bash
-# 默认：开机自启（适合评委/长期挂机）
 ./install.sh 192.168.1.100
-
-# 手动模式：不自启，需要时再开（适合只在特定时间用）
-./install.sh 192.168.1.100 --mode=manual
 ```
 
 设备需与电脑同一 Wi-Fi，并开启「待机保持 Wi-Fi」。
@@ -154,6 +150,44 @@ cargo run --example watch -- <IP> status.png gray16
 | `last_reply` / `recent` | `{role, content, ts}` 最近回复 / 最近几条 |
 
 文件修改后会自动重新加载（按 mtime 判断），不需要重启进程。
+
+## 常见问题
+
+| 现象 | 原因 / 解法 |
+|---|---|
+| `Error: NoDevice` | SDK 的 mDNS 自动发现不稳；**直接传 IP** |
+| `Error: Busy` | 设备被上一个连接占着，等 2 秒（本项目会自动重试） |
+| 中文显示成方块 | 本机 Pillow 打不开 `PingFang.ttc`，已改用 `Hiragino Sans GB` |
+| 按键没反应 | 页码文件必须与 PNG **同目录**；本版已内置，勿改路径 |
+| 屏幕回主页 | 推送进程退出后设备会回主页；用 install.sh 装成 LaunchAgent 可常驻 |
+| 改了 `agent_status.py` 但屏幕没变 | Python 不热加载，必须重启 daemon：`./restart.sh` |
+
+## 已知限制
+
+- 仅同一局域网（LAN v1 协议，端口 32342）
+- 同一设备同时只能有一个客户端连接
+- 花费为 token 估算值（DeepSeek 计价），非账单金额
+
+## License
+
+MIT。SDK 与协议来自 [Zectrix 本地推送 SDK](https://github.com/itopinion/zectrix-local-push-sdk)，遵循其 MIT 许可。
+
+
+---
+
+**源码地址**：https://github.com/JerryLiu720/zectrix-agent-status## 停止 / 启动 / 卸载
+
+脚本只负责**进程**和**设备连接**；要不要开机自启，请在 **系统设置 → 通用 → 登录项** 里管理。
+
+| 需求 | 命令 | 结果 |
+|---|---|---|
+| 只看数据、不要屏幕 | `./scripts/zectrix pause` | 断开设备，进程保留 |
+| 完全关掉 | `./scripts/stop.sh` | 结束进程，设备回主页 |
+| 重新打开 | `./scripts/start.sh` | 启动并连接设备 |
+| 看状态 | `./scripts/zectrix status` | 进程 / 心跳 / 最近日志 |
+| 彻底卸载 | `./scripts/uninstall.sh` | 停止并删除 LaunchAgent |
+
+`stop.sh` 不会改动登录项设置；下次登录是否自动启动，取决于系统设置里的开关。
 
 ## 常见问题
 
