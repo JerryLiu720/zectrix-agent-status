@@ -1,0 +1,6 @@
+{
+  "_说明": "复制为 config.json 生效。source=hermes 读 Hermes 本地数据；source=json 读其他助手写的 stats 文件",
+  "source": "hermes",
+  "assistant_name": "HERMES",
+  "stats_file": "~/zectrix-stats.json"
+}

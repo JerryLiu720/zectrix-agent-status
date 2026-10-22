@@ -23,6 +23,40 @@ BASE = os.environ.get("ZECTRIX_BASE") or os.path.dirname(os.path.abspath(__file_
 STATE = os.path.join(BASE, "ui_state.json")
 BAL_CACHE = os.path.join(BASE, ".balance_cache.json")
 PAGES = ["概览", "统计", "日程", "日志"]
+
+# ---------------- 配置：支持接入任意助手 ----------------
+CONFIG_PATH = os.path.join(BASE, "config.json")
+STATS = {}            # 外部助手提供的统计数据（source=json 时生效）
+CFG = {}              # config.json 内容
+STATS_MTIME = 0
+
+def load_config():
+    try:
+        return json.load(open(CONFIG_PATH, encoding="utf-8"))
+    except Exception:
+        return {}
+
+def refresh_stats():
+    """读取外部统计数据文件（其他助手只需按格式写这个 JSON）"""
+    global STATS, STATS_MTIME, CFG
+    cfg = load_config()
+    CFG = cfg
+    if cfg.get("source") != "json":
+        return cfg
+    path = os.path.expanduser(cfg.get("stats_file", "~/zectrix-stats.json"))
+    try:
+        mtime = os.path.getmtime(path)
+        if mtime != STATS_MTIME:
+            STATS = json.load(open(path, encoding="utf-8"))
+            STATS_MTIME = mtime
+    except Exception:
+        pass
+    return cfg
+
+def sget(key, default=None):
+    """从外部统计数据取值（无则返回 default）"""
+    return STATS.get(key, default)
+
 DEMO = False   # True = 当前渲染的是示例数据
 VERSION = "0.1.0"
 _last_png = None   # 内容去重：没变化就不写文件，避免墨水屏频繁刷新
@@ -45,6 +79,8 @@ def db(path):
     return sqlite3.connect(path)
 
 def model_name():
+    v = sget("model")
+    if v: return v
     try:
         cfg = open(os.path.join(H, "config.yaml"), encoding="utf-8").read()
         m = re.search(r"^model:\s*\n\s+provider:\s*(\S+)\s*\n\s+default:\s*(\S+)", cfg, re.M)
@@ -53,12 +89,16 @@ def model_name():
         return "—"
 
 def count_facts():
+    v = sget("memory_count")
+    if v is not None: return v
     try:
         return db(os.path.join(H, "memory_store.db")).execute("select count(*) from facts").fetchone()[0]
     except Exception:
         return 0
 
 def count_skills():
+    v = sget("skill_count")
+    if v is not None: return v
     try:
         return len([p for p in glob.glob(os.path.join(H, "skills/**/SKILL.md"), recursive=True)
                     if "/.archive/" not in p])
@@ -75,6 +115,8 @@ def last_msg():
 
 def battery():
     """设备电量与充电状态（由 watch 定期写入 battery.txt）"""
+    v = sget("battery")
+    if v is not None: return int(v), bool(sget("charging", False))
     try:
         s = open(os.path.join(BASE, "battery.txt")).read().strip()
         parts = s.split(",")
@@ -97,6 +139,8 @@ def link_status():
 
 def last_reply():
     """最后一条助手回复（不是用户消息）"""
+    v = sget("last_reply")
+    if v: return v
     try:
         row = db(os.path.join(H, "state.db")).execute(
             """select role, content, timestamp from messages
@@ -107,6 +151,8 @@ def last_reply():
         return None
 
 def recent_msgs(n=3):
+    v = sget("recent")
+    if v: return list(v)[:n]
     try:
         rows = db(os.path.join(H, "state.db")).execute(
             """select role, content, timestamp from messages
@@ -118,6 +164,8 @@ def recent_msgs(n=3):
         return []
 
 def today_msg_count():
+    v = sget("messages_today")
+    if v is not None: return v
     try:
         start = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
         return db(os.path.join(H, "state.db")).execute(
@@ -126,6 +174,8 @@ def today_msg_count():
         return 0
 
 def cron_jobs():
+    v = sget("cron")
+    if v is not None: return v
     try:
         d = json.load(open(os.path.join(H, "cron/jobs.json"), encoding="utf-8"))
         jobs = d if isinstance(d, list) else d.get("jobs", [])
@@ -142,6 +192,8 @@ def cron_jobs():
         return []
 
 def balance(ttl=600):
+    v = sget("balance")
+    if v is not None: return str(v), str(sget("granted", "0.00")), 0.0
     try:
         if os.path.exists(BAL_CACHE):
             c = json.load(open(BAL_CACHE))
@@ -231,6 +283,8 @@ def today_cost(rate=7.1):
 def daily_spend(total_str):
     """今日花费 = 当日余额下降量（与 DeepSeek 后台口径一致）
     首次运行当天只能从启动时刻开始计，返回 (金额, 起始时间戳)"""
+    v = sget("spend_today")
+    if v is not None: return float(v), None
     try:
         bal = float(total_str)
     except Exception:
@@ -255,6 +309,8 @@ def daily_spend(total_str):
 
 def week_counts():
     """最近 7 天每天的消息数（含今天），用于柱状图"""
+    v = sget("week")
+    if v: return v
     try:
         c = db(os.path.join(H, "state.db"))
         today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -269,6 +325,7 @@ def week_counts():
 def turn_state():
     """返回 (是否在处理, 本轮已运行秒数)。依据 Hermes 的 session_turn_leases。
     租约存在且未过期 = 正在跑一轮；否则空闲。"""
+    if "active" in STATS: return bool(STATS["active"]), float(STATS.get("elapsed", 0))
     try:
         c = db(os.path.join(H, "state.db"))
         row = c.execute("""select acquired_at, expires_at from session_turn_leases
@@ -288,13 +345,14 @@ def is_active():
 
 # ---------------- 渲染 ----------------
 def render(out, page=0):
+    refresh_stats()
     page = page % len(PAGES)
     img = Image.new("L", (W, HT), 255)
     d = ImageDraw.Draw(img)
 
     # 顶栏
     d.rectangle([0, 0, W, 34], fill=0)
-    d.text((10, 7), "HERMES", font=font(18), fill=255)
+    d.text((10, 7), str(CFG.get("assistant_name", "HERMES")).upper(), font=font(18), fill=255)
     now = datetime.datetime.now().strftime("%m-%d %H:%M")
 
     # 右上角：电量图标（实心比例 + 百分比），从右往左排

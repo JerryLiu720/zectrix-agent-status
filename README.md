@@ -128,56 +128,32 @@ python3 agent_status.py --demo            # 用示例数据渲染
 cargo run --example watch -- <IP> status.png gray16
 ```
 
-## 换成你自己的助手
+## 接入其他助手（配置化，无需改代码）
 
-数据都从这几个地方读，替换即可：
+复制 `config.example.json` 为 `config.json`：
 
-| 数据 | 来源 |
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| `source` | `hermes` / `json` | `hermes`＝读本机 Hermes 数据；`json`＝读任意助手写的统计文件 |
+| `assistant_name` | 字符串 | 顶栏显示的名字，默认 `HERMES` |
+| `stats_file` | 路径 | `source=json` 时读取的文件（支持 `~`） |
+
+当 `source=json` 时，**任何助手**（Codex、Claude Code、自研 Bot…）只要定期写一个 JSON 即可，格式见 `stats.example.json`：
+
+| 字段 | 含义 |
 |---|---|
-| 消息量 / 花费 | `~/.hermes/state.db` → `messages`、`session_model_usage` |
-| 定时任务 | `~/.hermes/cron/jobs.json` |
-| 记忆 / 技能 | `~/.hermes/memory_store.db`、`~/.hermes/skills/**/SKILL.md` |
-| 余额 | DeepSeek `/user/balance`（缓存 10 分钟） |
+| `model` | 当前模型名 |
+| `balance` / `granted` | 账户余额 / 赠金 |
+| `spend_today` | 今日花费 |
+| `messages_today` | 今日消息数 |
+| `memory_count` / `skill_count` | 记忆条数 / 技能个数 |
+| `week` | 近 7 天消息数（7 个整数） |
+| `cron` | `[{name, next, schedule}]` 定时任务 |
+| `active` / `elapsed` | 是否正在处理 / 本轮已运行秒数 |
+| `battery` / `charging` | 设备电量等（可选，通常由 watch 自动填） |
+| `last_reply` / `recent` | `{role, content, ts}` 最近回复 / 最近几条 |
 
-换别的 agent，只要把 `week_counts()` / `today_cost()` / `cron_jobs()` 换掉即可，渲染层不用动。
-
-## 停止 / 启动 / 卸载
-
-装好之后是三个后台服务（LaunchAgent），用脚本管理：
-
-**最常用的一条命令**（人和 AI 都能直接调用）：
-
-```bash
-./scripts/zectrix pause    # 暂停：1–2 秒内断开设备，屏幕回主页
-./scripts/zectrix resume   # 恢复：重新连接并推送
-./scripts/zectrix status   # 看状态 / 进程 / 心跳
-```
-
-`pause` 只是断开设备连接并停止推送，进程保留、不涉及任何系统权限；删掉 `PAUSED` 文件即恢复。
-
-其他管理命令：
-
-```bash
-./scripts/status.sh     # 查看是否在运行、进程号、设备心跳多久前
-./scripts/stop.sh       # 停止，并禁用下次登录自动启动
-./scripts/start.sh      # 手动启动（不会恢复自启）
-./scripts/uninstall.sh  # 卸载：停止并删除 LaunchAgent（保留安装目录）
-```
-
-> **默认按"手动开关"使用**：`stop.sh` 会把 LaunchAgent 移到 `~/Library/LaunchAgents/disabled/`，
-> 所以下次登录不会自己起来；`start.sh` 用 nohup 直接拉起进程，同样不会恢复自启。
-> 想恢复开机自启：运行一次 `./scripts/start.sh`（它会重新注册 LaunchAgent）。
-
-**最省事的用法**：安装时会（如果存在 `~/Desktop`）在桌面生成两个双击快捷方式：
-
-- **开启状态屏.command** → 启动并恢复开机自启
-- **关闭状态屏.command** → 停止并禁用开机自启（重启电脑也不会自己起来）
-
-双击即用，不用开终端敲命令。
-
-停止后不会影响其他软件；这三个服务只做两件事：读本机状态文件渲染 PNG、通过局域网推给 NOTE4（不联网上传任何数据）。
-
-**只想临时腾出设备**（比如用官方 App 控制屏幕）→ 运行 `stop.sh` 即可，之后再 `start.sh`。
+文件修改后会自动重新加载（按 mtime 判断），不需要重启进程。
 
 ## 常见问题
 

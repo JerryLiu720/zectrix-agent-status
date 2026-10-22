@@ -9,3 +9,4 @@ active.txt
 .balance_cache.json
 .balance_daily.json
 logs/
+config.json

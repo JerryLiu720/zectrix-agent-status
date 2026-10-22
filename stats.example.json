@@ -1,0 +1,41 @@
+{
+  "model": "claude-sonnet-4",
+  "balance": "88.80",
+  "granted": "8.80",
+  "spend_today": 12.34,
+  "messages_today": 512,
+  "memory_count": 77,
+  "skill_count": 21,
+  "week": [
+    10,
+    20,
+    30,
+    0,
+    44,
+    5,
+    512
+  ],
+  "cron": [
+    {
+      "name": "每日简报",
+      "next": "2026-10-22T09:00:00",
+      "schedule": "0 9 * * *"
+    }
+  ],
+  "active": true,
+  "elapsed": 95,
+  "battery": 66,
+  "charging": true,
+  "last_reply": {
+    "role": "assistant",
+    "content": "示例回复",
+    "ts": 1792595000
+  },
+  "recent": [
+    {
+      "role": "assistant",
+      "content": "示例回复",
+      "ts": 1792595000
+    }
+  ]
+}
