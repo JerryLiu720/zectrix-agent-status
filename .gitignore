@@ -10,3 +10,5 @@ active.txt
 .balance_daily.json
 logs/
 config.json
+__pycache__/
+*.pyc

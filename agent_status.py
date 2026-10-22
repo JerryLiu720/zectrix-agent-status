@@ -376,6 +376,20 @@ def render(out, page=0):
 
     # 页标题
     d.text((10, 40), f"{page + 1}/{len(PAGES)}  {PAGES[page]}", font=font(14), fill=90)
+
+    # 右上角：连接状态（与页标题同一行）
+    _ltxt, _lok = link_status()
+    _f = font(11)
+    _tw = d.textlength(_ltxt, font=_f)
+    _r = 4
+    _cx = W - 10 - _tw - 5 - _r
+    _cy = 48
+    if _lok:
+        d.ellipse([_cx - _r, _cy - _r, _cx + _r, _cy + _r], fill=0)
+    else:
+        d.ellipse([_cx - _r, _cy - _r, _cx + _r, _cy + _r], outline=0, width=2)
+    d.text((W - 10 - _tw, 42), _ltxt, font=_f, fill=90)
+
     d.line([10, 60, W - 10, 60], fill=170)
 
     y = 68
@@ -405,42 +419,25 @@ def render(out, page=0):
             sub = f"上次回复 {ago(m['ts'])}" if m else "暂无回复"
         d.text((16, 120), sub, font=font(11, bold=False), fill=120)
 
-        # 右侧：模型（右对齐，与"当前进度"同一视觉带）
+        # 右侧：模型（小标题在上、名称在下，与左侧「当前进度」同一视觉带）
         mdl = model_name()
-        while d.textlength(mdl, font=font(15)) > 150 and len(mdl) > 4:
+        f_lbl, f_mdl = font(11), font(15)
+        while d.textlength(mdl, font=f_mdl) > 150 and len(mdl) > 4:
             mdl = mdl[:-2] + "…"
-        # 标签行（右对齐）：模型  ● 已连接
-        _ltxt, _lok = link_status()
-        f_lbl = font(10, bold=False)
-        ltxt = "已连接" if _lok else "断开"
-        low = False
-        w_lbl = d.textlength("模型", font=f_lbl)
-        w_lt = d.textlength(ltxt, font=f_lbl)
-        dot_r = 4
-        total = w_lbl + 6 + dot_r * 2 + 5 + w_lt
-        lx = W - 16 - total
-        d.text((lx, 66), "模型", font=f_lbl, fill=125)
-        dcx = lx + w_lbl + 6 + dot_r
-        dcy = 71
-        if _lok:
-            d.ellipse([dcx - dot_r, dcy - dot_r, dcx + dot_r, dcy + dot_r], fill=0)
-        else:
-            d.ellipse([dcx - dot_r, dcy - dot_r, dcx + dot_r, dcy + dot_r], outline=0, width=2)
-        d.text((dcx + dot_r + 5, 66), ltxt,
-               font=(font(11) if low else f_lbl), fill=(0 if low else 125))
-        # 模型名（右对齐，大字）
-        d.text((W - 16 - d.textlength(mdl, font=font(15)), 80), mdl, font=font(15), fill=0)
+        mx = W - 16 - d.textlength(mdl, font=f_mdl)
+        d.text((mx, 66), "模型", font=f_lbl, fill=125)
+        d.text((mx, 80), mdl, font=f_mdl, fill=0)
 
-        d.line([16, 142, W - 16, 142], fill=210)
+        d.line([16, 138, W - 16, 138], fill=210)
 
         # 花费 / 余额
         slab = "今日花费"
         if since:
             midnight = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-            if since - midnight > 600:      # 当天中途启动 → 标明起算时间
+            if since - midnight > 600:
                 slab += " · " + datetime.datetime.fromtimestamp(since).strftime("%H:%M") + " 起"
-        d.text((16, 150), slab, font=font(11, bold=False), fill=125)
-        d.text((16, 166), (f"¥{cny:,.2f}" if cny is not None else "—"), font=font(29), fill=0)
+        d.text((16, 146), slab, font=font(11, bold=False), fill=125)
+        d.text((16, 162), (f"¥{cny:,.2f}" if cny is not None else "—"), font=font(29), fill=0)
 
         bx = 232
         blabel = "账户余额"
@@ -448,19 +445,27 @@ def render(out, page=0):
             blabel += f" · {int(bage // 60)} 分钟前"
         elif bage is not None:
             blabel += " · 刚刚"
-        d.text((bx, 150), blabel, font=font(11, bold=False), fill=125)
-        d.text((bx, 166), f"¥{bal}", font=font(29), fill=0)
-        d.text((bx, 204), f"赠金 ¥{granted}", font=font(10, bold=False), fill=125)
+        d.text((bx, 146), blabel, font=font(11, bold=False), fill=125)
+        d.text((bx, 162), f"¥{bal}", font=font(29), fill=0)
+        # 赠金：右侧，底部与余额数字的墨迹底部对齐
+        gtxt = f"赠金 ¥{granted}"
+        gb = d.textbbox((0, 0), gtxt, font=font(10))
+        nb = d.textbbox((0, 0), f"¥{bal}", font=font(29))
+        gy = 162 + nb[3] - gb[3]
+        d.text((W - 16 - d.textlength(gtxt, font=font(10)), gy), gtxt, font=font(10), fill=125)
 
-        d.line([16, 224, W - 16, 224], fill=210)
+        d.line([16, 204, W - 16, 204], fill=210)
 
-        # 最近消息（最下面）
-        d.text((16, 231), "最近消息", font=font(10, bold=False), fill=125)
+        # 最近消息（最多两行）
+        d.text((16, 210), "最近消息", font=font(10, bold=False), fill=125)
         if m:
-            body = clean_text(m["content"], 22)
-            d.text((16, 244), f"{ago(m['ts'])} · {body}", font=font(14), fill=0)
+            body = clean_text(m["content"], 64)
+            lines = wrap_lines(d, body, 14, W - 32, 2)
+            d.text((16, 224), f"{ago(m['ts'])} · {lines[0]}", font=font(14), fill=0)
+            if len(lines) > 1:
+                d.text((16, 242), lines[1], font=font(14), fill=0)
         else:
-            d.text((16, 244), "暂无记录", font=font(14), fill=110)
+            d.text((16, 224), "暂无记录", font=font(14), fill=110)
 
     elif page == 1:
         # 统计：近 7 日消息
@@ -543,6 +548,23 @@ def clean_text(s, limit=None):
     if limit and len(s) > limit:
         s = s[:limit] + "…"
     return s
+
+def wrap_lines(d, text, size, max_w, max_lines=2):
+    """按像素宽度折行，最多 max_lines 行，超出用省略号。"""
+    lines, cur = [], ""
+    for ch in text:
+        if d.textlength(cur + ch, font=font(size)) <= max_w:
+            cur += ch
+        else:
+            lines.append(cur)
+            cur = ch
+            if len(lines) == max_lines:
+                break
+    if cur and len(lines) < max_lines:
+        lines.append(cur)
+    elif cur and lines:
+        lines[-1] = lines[-1][:-1] + "…"
+    return lines or [""]
 
 def enable_demo():
     """把数据源替换为示例值：用于生成截图、给没有 Hermes 的人预览"""
