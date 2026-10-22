@@ -419,14 +419,17 @@ def render(out, page=0):
             sub = f"上次回复 {ago(m['ts'])}" if m else "暂无回复"
         d.text((16, 120), sub, font=font(11, bold=False), fill=120)
 
-        # 右侧：模型（小标题在上、名称在下，与左侧「当前进度」同一视觉带）
+        # 右侧：模型（小标题在上、名称放大，下方补今日消息数）
         mdl = model_name()
-        f_lbl, f_mdl = font(11), font(15)
-        while d.textlength(mdl, font=f_mdl) > 150 and len(mdl) > 4:
+        f_lbl, f_mdl = font(11), font(20)
+        while d.textlength(mdl, font=f_mdl) > 170 and len(mdl) > 4:
             mdl = mdl[:-2] + "…"
         mx = W - 16 - d.textlength(mdl, font=f_mdl)
         d.text((mx, 66), "模型", font=f_lbl, fill=125)
-        d.text((mx, 80), mdl, font=f_mdl, fill=0)
+        d.text((mx, 76), mdl, font=f_mdl, fill=0)
+        sub = f"今日 {today_msg_count()} 条消息"
+        sx = min(mx, W - 16 - d.textlength(sub, font=font(11)))
+        d.text((sx, 106), sub, font=font(11), fill=125)
 
         d.line([16, 138, W - 16, 138], fill=210)
 
