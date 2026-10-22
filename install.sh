@@ -196,7 +196,8 @@ PLIST
 echo "==> [6/6] 启动服务"
 for L in com.zectrix.agentstatus.daemon com.zectrix.agentstatus.watch com.zectrix.agentstatus.logrotate; do
   launchctl bootout "gui/$UID_N/$L" 2>/dev/null || true
-  launchctl bootstrap "gui/$UID_N" "$LA/$L.plist"
+  launchctl bootstrap "gui/$UID_N" "$LA/$L.plist" 2>/dev/null \
+    || echo "  ⚠️ $L 加载失败（可稍后运行 ./scripts/start.sh 重试）"
 done
 echo "    已注册 LaunchAgent（自启可在「系统设置 → 通用 → 登录项」关闭）"
 
