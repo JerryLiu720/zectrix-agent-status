@@ -442,20 +442,30 @@ def render(out, page=0):
         d.text((16, 146), slab, font=font(11, bold=False), fill=125)
         d.text((16, 162), (f"¥{cny:,.2f}" if cny is not None else "—"), font=font(29), fill=0)
 
-        bx = 232
+        bx = 200
         blabel = "账户余额"
         if bage is not None and bage >= 60:
             blabel += f" · {int(bage // 60)} 分钟前"
         elif bage is not None:
             blabel += " · 刚刚"
         d.text((bx, 146), blabel, font=font(11, bold=False), fill=125)
-        d.text((bx, 162), f"¥{bal}", font=font(29), fill=0)
-        # 赠金：右侧，底部与余额数字的墨迹底部对齐
+
+        # 金额位数多时自动降字号，保证「金额 + 赠金」不重叠
         gtxt = f"赠金 ¥{granted}"
-        gb = d.textbbox((0, 0), gtxt, font=font(10))
-        nb = d.textbbox((0, 0), f"¥{bal}", font=font(29))
+        f_gift = font(10)
+        w_gift = d.textlength(gtxt, font=f_gift)
+        num = f"¥{bal}"
+        size = 29
+        for cand in (29, 26, 24, 22, 20):
+            if bx + d.textlength(num, font=font(cand)) + 10 + w_gift <= W - 16:
+                size = cand
+                break
+        f_num = font(size)
+        d.text((bx, 162), num, font=f_num, fill=0)
+        nb = d.textbbox((0, 0), num, font=f_num)
+        gb = d.textbbox((0, 0), gtxt, font=f_gift)
         gy = 162 + nb[3] - gb[3]
-        d.text((W - 16 - d.textlength(gtxt, font=font(10)), gy), gtxt, font=font(10), fill=125)
+        d.text((W - 16 - w_gift, gy), gtxt, font=f_gift, fill=125)
 
         d.line([16, 204, W - 16, 204], fill=210)
 
