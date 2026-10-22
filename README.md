@@ -151,44 +151,20 @@ cargo run --example watch -- <IP> status.png gray16
 
 文件修改后会自动重新加载（按 mtime 判断），不需要重启进程。
 
-## 常见问题
-
-| 现象 | 原因 / 解法 |
-|---|---|
-| `Error: NoDevice` | SDK 的 mDNS 自动发现不稳；**直接传 IP** |
-| `Error: Busy` | 设备被上一个连接占着，等 2 秒（本项目会自动重试） |
-| 中文显示成方块 | 本机 Pillow 打不开 `PingFang.ttc`，已改用 `Hiragino Sans GB` |
-| 按键没反应 | 页码文件必须与 PNG **同目录**；本版已内置，勿改路径 |
-| 屏幕回主页 | 推送进程退出后设备会回主页；用 install.sh 装成 LaunchAgent 可常驻 |
-| 改了 `agent_status.py` 但屏幕没变 | Python 不热加载，必须重启 daemon：`./restart.sh` |
-
-## 已知限制
-
-- 仅同一局域网（LAN v1 协议，端口 32342）
-- 同一设备同时只能有一个客户端连接
-- 花费为 token 估算值（DeepSeek 计价），非账单金额
-
-## License
-
-MIT。SDK 与协议来自 [Zectrix 本地推送 SDK](https://github.com/itopinion/zectrix-local-push-sdk)，遵循其 MIT 许可。
-
-
----
-
-**源码地址**：https://github.com/JerryLiu720/zectrix-agent-status## 停止 / 启动 / 卸载
+## 停止 / 启动 / 卸载
 
 脚本只负责**进程**和**设备连接**；要不要开机自启，请在 **系统设置 → 通用 → 登录项** 里管理。
 
 | 需求 | 命令 | 结果 |
 |---|---|---|
-| 只看数据、不要屏幕 | `./scripts/zectrix pause` | 断开设备；终端里会问「要同时关进程吗」 |
+| 断开屏幕（人还在） | `./scripts/zectrix pause` | 断开设备；终端里会问「要同时关进程吗」 |
 | 断开并直接关进程（AI 用） | `./scripts/zectrix off` | 断开设备 + 结束进程 |
-| 完全关掉 | `./scripts/stop.sh` | 结束进程，设备回主页 |
+| 只关进程 | `./scripts/stop.sh` | 结束进程，设备回主页 |
 | 重新打开 | `./scripts/start.sh` | 启动并连接设备 |
-| 看状态 | `./scripts/zectrix status` | 进程 / 心跳 / 最近日志 |
+| 看状态 | `./scripts/zectrix status` | 屏幕 / 进程 / 心跳 / 最近日志 |
 | 彻底卸载 | `./scripts/uninstall.sh` | 停止并删除 LaunchAgent |
 
-`stop.sh` 不会改动登录项设置；下次登录是否自动启动，取决于系统设置里的开关。
+`stop.sh` 不改动登录项设置；下次登录是否自动启动，取决于系统设置里的开关。
 
 ## 常见问题
 
@@ -196,21 +172,22 @@ MIT。SDK 与协议来自 [Zectrix 本地推送 SDK](https://github.com/itopinio
 |---|---|
 | `Error: NoDevice` | SDK 的 mDNS 自动发现不稳；**直接传 IP** |
 | `Error: Busy` | 设备被上一个连接占着，等 2 秒（本项目会自动重试） |
-| 中文显示成方块 | 本机 Pillow 打不开 `PingFang.ttc`，已改用 `Hiragino Sans GB` |
-| 按键没反应 | 页码文件必须与 PNG **同目录**；本版已内置，勿改路径 |
+| 中文显示成方块 | 本机 Pillow 打不开 `PingFang.ttc`，已改用 `Hiragino Sans GB`；12/13px 数字有字形缺陷，统一用 10/11/14px |
+| 按键没反应 | 页码文件必须与 PNG **同目录**；本版已内置 |
 | 屏幕回主页 | 推送进程退出后设备会回主页；用 install.sh 装成 LaunchAgent 可常驻 |
-| 改了 `agent_status.py` 但屏幕没变 | Python 不热加载，必须重启 daemon：`./restart.sh` |
+| 改了 `agent_status.py` 但屏幕没变 | Python 不热加载，重启 daemon：`./restart.sh` |
+| 连按只翻一页 | 自适应安静期：单次 0.5s、连按停手 1.2s 后才推 |
 
 ## 已知限制
 
 - 仅同一局域网（LAN v1 协议，端口 32342）
 - 同一设备同时只能有一个客户端连接
-- 花费为 token 估算值（DeepSeek 计价），非账单金额
+- 设备刷新一次约 2.5 秒，刷新期间的按键由设备缓存（约 2 个），连按会合并刷新
+- 仅在 Apple Silicon macOS 实测通过；Windows / Linux 未验证
 
 ## License
 
 MIT。SDK 与协议来自 [Zectrix 本地推送 SDK](https://github.com/itopinion/zectrix-local-push-sdk)，遵循其 MIT 许可。
-
 
 ---
 
