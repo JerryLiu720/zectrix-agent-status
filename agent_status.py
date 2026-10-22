@@ -410,7 +410,7 @@ def render(out, page=0):
 
         # 当前进度（最上面）：真实租约 → 处理中 + 本轮耗时
         d.text((16, 66), "当前进度", font=font(11), fill=125)
-        prog = "正在处理" if active else "空闲 · 等待指令"
+        prog = "正在处理" if active else "空闲·等待指令"
         d.text((16, 80), prog, font=font(28), fill=0)
         if active:
             secs = int(elapsed)
