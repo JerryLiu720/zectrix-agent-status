@@ -1,11 +1,18 @@
 # 个人 AI 助手状态屏 · Zectrix NOTE4
 
-> 别人做的是「Codex / Claude Code 编程助手」的看板；这一版做的是**任何个人 AI 助手**的桌面副屏：
-> 现在在不在干活、用的什么模型、今天花了多少钱、账户还剩多少、今天聊了多少、下一步定时任务是什么。
+> 把「我的 AI 现在在不在干活、用哪个模型、今天花了多少、余额还剩多少」做成一张抬眼可见的
+> 400×300 桌面卡片；墨水屏常驻显示，按键即可翻阅统计、日程与最近对话。
 
 ![preview](screenshots/preview.png)
 
 ![四页演示](screenshots/demo.gif)
+
+> 截图使用示例数据渲染，页脚会标注「示例数据」，不是真实账户余额。
+
+## 解决什么问题
+
+常用 AI 助手的人反复要确认三件事：它现在在不在干活、今天花了多少钱、余额还够不够。
+每次切窗口或开网页去查都不值当。这块屏把这几项放在视线里，不发光、不弹通知、不打断手上的事。
 
 ## 和社区现有项目的区别
 
@@ -73,21 +80,30 @@ git clone 后执行 ./install.sh <设备IP>；完成后确认 NOTE4 显示第 1 
 | 拉取依赖（阿里云镜像，170MB） | ~10 秒 |
 | release 编译（含 Opus） | ~12 秒 |
 | 自检 + 注册 3 个 LaunchAgent | ~2 秒 |
-| **合计** | **约 38 秒** |
+| **合计** | **约 30–40 秒**（干净 HOME 实测 31.7 秒，取决于网速） |
 
 若镜像不可用会回退官方源，耗时可能变成几分钟到几十分钟 —— 脚本会依次尝试 阿里云 → rsproxy → tuna。
 
 ## 安装（手动 3 步）
 
+**1. 拿到设备 IP**：小程序「设备信息」页可看，也可在路由器设备列表里找 `zectrix-` 开头的设备。设备需与电脑同一 Wi-Fi，并开启「待机保持 Wi-Fi」。
+
+**2. 克隆仓库**
+
+```bash
+git clone https://github.com/JerryLiu720/zectrix-agent-status
+cd zectrix-agent-status
+```
+
+**3. 运行安装脚本**（IP 换成你自己的）
+
 ```bash
 ./install.sh 192.168.1.100
 ```
 
-设备需与电脑同一 Wi-Fi，并开启「待机保持 Wi-Fi」。
-
 `install.sh` 会：装 cmake（pip，不走 brew）→ 拉取 Zectrix SDK（codeload 绕过 github.com）→ 编译 `watch` → 安装三个 LaunchAgent（渲染 daemon、设备推送、日志轮转）。
 
-编译 Rust 依赖时，脚本会探测 `rsproxy.cn`，可用则临时切国内镜像（`--config` 传入，不改你的全局 cargo 配置）；设 `ZECTRIX_NO_MIRROR=1` 可强制走官方源。
+编译 Rust 依赖时，脚本会依次尝试 **阿里云 → rsproxy → tuna** 三个镜像（用 `--config` 临时传入，不改你的全局 cargo 配置）；都不可用时回退官方源。设 `ZECTRIX_NO_MIRROR=1` 可强制走官方源。
 
 ## 按键语义（重要）
 
@@ -121,7 +137,7 @@ git clone 后执行 ./install.sh <设备IP>；完成后确认 NOTE4 显示第 1 
 python3 agent_status.py --page 1          # 只渲染第 2 页到 status.png
 python3 agent_status.py --selftest        # 渲染四页并校验尺寸（安装后自检）
 python3 agent_status.py --demo            # 用示例数据渲染
-cargo run --example watch -- <IP> status.png gray16
+~/zectrix-agent-status/bin/zectrix-watch <IP> status.png gray16
 ```
 
 ## 接入其他助手（配置化，无需改代码）
@@ -161,6 +177,7 @@ cargo run --example watch -- <IP> status.png gray16
 | 断开并直接关进程（AI 用） | `./scripts/zectrix off` | 断开设备 + 结束进程 |
 | 只关进程 | `./scripts/stop.sh` | 结束进程，设备回主页 |
 | 重新打开 | `./scripts/start.sh` | 启动并连接设备 |
+| 改完代码重启 | `./restart.sh` | 重启渲染 daemon 与推送进程 |
 | 看状态 | `./scripts/zectrix status` | 屏幕 / 进程 / 心跳 / 最近日志 |
 | 彻底卸载 | `./scripts/uninstall.sh` | 停止并删除 LaunchAgent |
 
@@ -183,6 +200,7 @@ cargo run --example watch -- <IP> status.png gray16
 - 仅同一局域网（LAN v1 协议，端口 32342）
 - 同一设备同时只能有一个客户端连接
 - 设备刷新一次约 2.5 秒，刷新期间的按键由设备缓存（约 2 个），连按会合并刷新
+- **电脑需持续运行**：渲染与推送都在本机，电脑休眠或关机后画面停在最后一帧，不会继续更新
 - 仅在 Apple Silicon macOS 实测通过；Windows / Linux 未验证
 
 ## License
@@ -191,4 +209,5 @@ MIT。SDK 与协议来自 [Zectrix 本地推送 SDK](https://github.com/itopinio
 
 ---
 
-**源码地址**：https://github.com/JerryLiu720/zectrix-agent-status
+- **源码**：https://github.com/JerryLiu720/zectrix-agent-status
+- **社区页**：https://zectrix.com/developer/projects/zectrix-agent-status.html
