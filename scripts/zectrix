@@ -1,22 +1,57 @@
 #!/bin/bash
-# zectrix pause|resume|status —— AI 或人都可以直接调用
+# zectrix pause [--stop] | off | resume | status
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
 case "$1" in
   pause)
     touch "$DIR/PAUSED"
-    echo "已暂停：设备会在 1–2 秒内断开，屏幕回到主页。"
+    echo "已断开屏幕：设备会在 1–2 秒内回到主页。"
+    # 只有人（终端）运行时才询问；AI/脚本调用不会卡住
+    if [ "$2" = "--stop" ] || [ "$2" = "-s" ]; then
+      "$DIR/scripts/stop.sh"
+    elif [ -t 0 ]; then
+      printf "要同时关闭后台进程吗？[y/N] "
+      read -r ans
+      case "$ans" in
+        y|Y|yes|YES) "$DIR/scripts/stop.sh" ;;
+        *) echo "已保留进程。恢复屏幕：$(basename "$0") resume" ;;
+      esac
+    fi
+    ;;
+  off|stop)
+    touch "$DIR/PAUSED"
+    echo "正在断开屏幕并关闭进程…"
+    sleep 1
+    "$DIR/scripts/stop.sh"
     ;;
   resume)
     rm -f "$DIR/PAUSED"
     echo "已恢复：正在重新连接设备…"
     ;;
   status)
-    if [ -f "$DIR/PAUSED" ]; then echo "状态：已暂停（未连接设备）"; else echo "状态：运行中"; fi
-    pgrep -fl "agent_status.py --daemon|zectrix-watch|examples/watch" | sed 's/^/  /' || echo "  （无进程）"
-    [ -f "$DIR/conn.txt" ] && echo "  设备心跳：$(( $(date +%s) - $(cat "$DIR/conn.txt") )) 秒前"
-    echo "  最近日志："; tail -3 "$DIR/logs/watch.log" 2>/dev/null | sed 's/^/    /'
+    if [ -f "$DIR/PAUSED" ]; then
+      echo "屏幕：已断开（PAUSED）"
+    elif [ -f "$DIR/conn.txt" ] && [ $(( $(date +%s) - $(cat "$DIR/conn.txt") )) -lt 30 ]; then
+      echo "屏幕：已连接"
+    else
+      echo "屏幕：未连接"
+    fi
+    if pgrep -f "agent_status.py --daemon|zectrix-watch|examples/watch" >/dev/null; then
+      echo "进程：运行中"; pgrep -fl "agent_status.py --daemon|zectrix-watch|examples/watch" | sed 's/^/  /'
+    else
+      echo "进程：已停止"
+    fi
+    [ -f "$DIR/conn.txt" ] && echo "设备心跳：$(( $(date +%s) - $(cat "$DIR/conn.txt") )) 秒前"
+    echo "最近日志："; tail -3 "$DIR/logs/watch.log" 2>/dev/null | sed 's/^/  /'
     ;;
   *)
-    echo "用法：$(basename "$0") pause|resume|status"
+    cat <<EOF
+用法：
+  $(basename "$0") pause          断开屏幕（终端里会询问是否顺带关进程）
+  $(basename "$0") pause --stop   断开屏幕并直接关闭进程（供 AI/脚本调用）
+  $(basename "$0") off            等同于 pause --stop
+  $(basename "$0") resume         恢复屏幕
+  $(basename "$0") status         查看状态
+EOF
     ;;
 esac

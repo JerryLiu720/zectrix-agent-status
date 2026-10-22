@@ -181,7 +181,8 @@ MIT。SDK 与协议来自 [Zectrix 本地推送 SDK](https://github.com/itopinio
 
 | 需求 | 命令 | 结果 |
 |---|---|---|
-| 只看数据、不要屏幕 | `./scripts/zectrix pause` | 断开设备，进程保留 |
+| 只看数据、不要屏幕 | `./scripts/zectrix pause` | 断开设备；终端里会问「要同时关进程吗」 |
+| 断开并直接关进程（AI 用） | `./scripts/zectrix off` | 断开设备 + 结束进程 |
 | 完全关掉 | `./scripts/stop.sh` | 结束进程，设备回主页 |
 | 重新打开 | `./scripts/start.sh` | 启动并连接设备 |
 | 看状态 | `./scripts/zectrix status` | 进程 / 心跳 / 最近日志 |
