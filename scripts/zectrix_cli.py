@@ -204,6 +204,16 @@ def cmd_resume(_a):
     return 0
 
 
+def cmd_off(_a):
+    for label in ("watch", "daemon"):
+        subprocess.run(["launchctl", "bootout", f"gui/{UID}/com.zectrix.agentstatus.{label}"],
+                       capture_output=True)
+    subprocess.run(["pkill", "-f", "zectrix-watch"], capture_output=True)
+    subprocess.run(["pkill", "-f", "agent_status.py --daemon"], capture_output=True)
+    print("已断开设备并结束进程")
+    return 0
+
+
 def cmd_restart(_a):
     kick("daemon")
     kick("watch")
@@ -219,6 +229,7 @@ def main():
     sub.add_parser("pause").set_defaults(fn=cmd_pause)
     sub.add_parser("resume").set_defaults(fn=cmd_resume)
     sub.add_parser("restart").set_defaults(fn=cmd_restart)
+    sub.add_parser("off").set_defaults(fn=cmd_off)
     p = sub.add_parser("connect")
     p.add_argument("agent", choices=["claude-code", "hermes", "codex"])
     p.set_defaults(fn=lambda a: cmd_connect(a.agent))

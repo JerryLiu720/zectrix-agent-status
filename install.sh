@@ -161,6 +161,8 @@ cat > "$INSTALL_DIR/bin/zectrix" <<EOF
 exec "$PY" "$INSTALL_DIR/scripts/zectrix_cli.py" "\$@"
 EOF
 chmod +x "$INSTALL_DIR/bin/zectrix"
+ln -sf "$INSTALL_DIR/bin/zectrix" /usr/local/bin/zectrix 2>/dev/null \
+  || { mkdir -p "$HOME/bin"; ln -sf "$INSTALL_DIR/bin/zectrix" "$HOME/bin/zectrix"; }
 
 if [ -z "$IP" ]; then
   echo "==> 自动发现设备"

@@ -119,9 +119,9 @@ the README, installs dependencies, builds and registers the launch agents:
 ```
 Install the GitHub repo JerryLiu720/zectrix-agent-status on this macOS machine:
 read the README first; if cmake is missing install it with pip (do not use brew),
-if Rust is missing use rustup; after git clone run ./install.sh <device-ip>;
+if Rust is missing use rustup; after git clone run ./install.sh (no IP needed, it auto-discovers);
 when done confirm the NOTE4 shows page 1.
-Troubleshooting: if NoDevice, use a direct IP; if Busy, retry after 2 seconds.
+Troubleshooting: if NoDevice, run ./bin/zectrix discover; if Busy, retry after 2 seconds.
 ```
 
 ## Install time (measured)
@@ -139,7 +139,7 @@ Full install on a clean HOME (no Rust, no cargo cache):
 If mirrors are unavailable the script falls back to the official sources, which can take minutes to
 tens of minutes — it tries Aliyun → rsproxy → tuna in order.
 
-## Manual install (3 steps)
+## Manual install (2 steps)
 
 **1. Get the device IP**: on the NOTE4 open **Settings → Network**; you can also look for a
 `zectrix-` prefix in your router's DHCP list.
@@ -155,7 +155,8 @@ cd zectrix-agent-status
 **3. Run the installer** (replace the IP with yours)
 
 ```bash
-./install.sh 192.168.1.100
+./install.sh                  # auto-discovers the device
+./install.sh 192.168.1.100    # or pass the IP manually
 ```
 
 `install.sh` installs cmake (via pip, not brew) → fetches the Zectrix SDK (codeload, bypassing
@@ -201,7 +202,7 @@ python3 agent_status.py --selftest        # render all pages and check dimension
 python3 agent_status.py --demo            # render with sample data
 python3 tests/test_wrap.py                # regression tests for wrapping/cleaning
 python3 scripts/make_screenshots.py       # regenerate README screenshots (page0-3 + preview + demo.gif)
-python3 scripts/resolve_ip.py             # rediscover the device IP if DHCP moved it
+./bin/zectrix discover                    # rediscover the device IP if DHCP moved it
 python3 scripts/mcp_server.py             # run as an MCP server (stdio)
 ~/zectrix-agent-status/bin/zectrix-watch <IP> status.png gray16
 ```
@@ -255,7 +256,7 @@ every trigger (max once / 5 min) → read the DeepSeek balance; spend is derived
 
 It backs up `~/.claude/settings.json` first and only touches its own hooks.
 
-### 4. Data format (stats.json)
+### 3. Data format (stats.json)
 
 Any agent that can write the following JSON can be plugged in (all fields optional):
 
@@ -296,7 +297,7 @@ Any agent that can write the following JSON can be plugged in (all fields option
 Write atomically (`.tmp` then rename) so a reader never sees half a file — `zectrix-report`
 already does this.
 
-### 3. MCP server (Claude Code / Cursor / any MCP client)
+### 4. MCP server (Claude Code / Cursor / any MCP client)
 
 ```bash
 claude mcp add zectrix -- python3 <repo>/scripts/mcp_server.py
@@ -338,6 +339,7 @@ Copy `config.example.json` to `config.json`:
 | `stats_file` | path | File read when `source=json` (supports `~`) |
 | `lang` | `zh` / `en` | UI language, default `zh` |
 | `alert_low_balance` | number | Alert and beep when balance drops below this, default `10` |
+| `spend_mode` | `own` / `account` | Spend for json sources: `own` (default, only `spend_today`) or `account` (balance drop) |
 
 With `source=json`, **any assistant** (Codex, Claude Code, a custom bot…) just writes a JSON file
 periodically; the schema is in `stats.example.json`:
@@ -370,12 +372,13 @@ is controlled by **System Settings → General → Login Items**.
 
 | Goal | Command | Result |
 |---|---|---|
-| Disconnect the panel (stay logged in) | `./scripts/zectrix pause` | Disconnects the device; asks in a terminal whether to also stop processes |
-| Disconnect and stop (for AI) | `./scripts/zectrix off` | Disconnects + ends processes |
+| Pause pushing (renderer keeps running) | `zectrix pause` | Disconnects the device, keeps processes |
+| Resume pushing | `zectrix resume` | Reconnects the device |
+| Disconnect and stop | `zectrix off` | Disconnects + ends processes |
 | Stop processes only | `./scripts/stop.sh` | Ends processes; device returns to home |
 | Turn back on | `./scripts/start.sh` | Starts and connects the device |
 | Restart after code changes | `./restart.sh` | Restarts the render daemon and pusher |
-| Status | `./scripts/zectrix status` | Panel / processes / heartbeat / recent log |
+| Status | `zectrix status` | Device / services / data source / recent log |
 | Uninstall | `./scripts/uninstall.sh` | Stops and removes the launch agents |
 
 `stop.sh` does not touch login items; whether it auto-starts next login depends on the system setting.
@@ -384,7 +387,7 @@ is controlled by **System Settings → General → Login Items**.
 
 | Symptom | Cause / fix |
 |---|---|
-| `Error: NoDevice` | The SDK's mDNS discovery is unreliable; **pass the IP directly** |
+| `Error: NoDevice` | The device IP changed or it is offline; run `zectrix discover`, or pass the IP |
 | `Error: Busy` | Another connection holds the device; wait 2 s (this project retries automatically) |
 | Chinese renders as boxes | Pillow on this machine cannot open `PingFang.ttc`; the project uses `Hiragino Sans GB`. Digits at 12/13px are broken, so 10/11/14px are used |
 | Keys do nothing | The page-number file must be in the **same directory as the PNG**; built in since this version |

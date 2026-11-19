@@ -74,9 +74,34 @@
 ```
 帮我在这台 macOS 上安装 GitHub 仓库 JerryLiu720/zectrix-agent-status：
 先读 README，缺 cmake 用 pip 装（不要用 brew），缺 Rust 用 rustup；
-git clone 后执行 ./install.sh <设备IP>；完成后确认 NOTE4 显示第 1 页。
-排错：NoDevice 改用 IP 直连；Busy 等 2 秒自动重试。
+git clone 后执行 ./install.sh（不用填 IP，会自动发现设备）；完成后确认 NOTE4 显示第 1 页。
+排错：NoDevice 运行 ./bin/zectrix discover；Busy 等 2 秒自动重试。
 ```
+
+## 安装后
+
+`./install.sh` 不需要参数，会自动发现设备 IP。装完只有三件事：
+
+```bash
+zectrix status                  # 看设备、服务、数据源是否正常
+zectrix setup                   # 交互式：选助手 / 语言 / 余额阈值
+zectrix connect claude-code     # Claude Code 用户：装 hooks 并接上
+```
+
+其他命令：
+
+```bash
+zectrix connect hermes          # 切回 Hermes
+zectrix connect codex           # 写 ~/.codex/config.toml 的 notify
+zectrix discover                # 设备 IP 变了时重新找
+zectrix pause / resume          # 暂停 / 恢复推送
+zectrix restart                 # 重启渲染与推送
+```
+
+> `zectrix` 会软链到 `/usr/local/bin`（没有权限时放到 `~/bin`），完整路径是 `~/zectrix-agent-status/bin/zectrix`。
+
+**没有配置文件也能跑**：检测到 `~/.hermes/state.db` 就用 Hermes，否则用 `~/zectrix-stats.json`，
+两者都没有才显示示例数据。
 
 ## 安装耗时（实测）
 
@@ -92,22 +117,22 @@ git clone 后执行 ./install.sh <设备IP>；完成后确认 NOTE4 显示第 1 
 
 若镜像不可用会回退官方源，耗时可能变成几分钟到几十分钟 —— 脚本会依次尝试 阿里云 → rsproxy → tuna。
 
-## 安装（手动 3 步）
+## 安装（手动 2 步）
 
-**1. 拿到设备 IP**：在 NOTE4 上进入 **「设置 → 网络」** 查看；也可在路由器 DHCP 列表里找 `zectrix-` 开头的设备。
-设备需与电脑同一 Wi-Fi，并开启「待机保持 Wi-Fi」。
+设备需与电脑同一 Wi-Fi，并开启「设置 → 网络同步 → 待机保持 Wi-Fi」。
 
-**2. 克隆仓库**
+**1. 克隆仓库**
 
 ```bash
 git clone https://github.com/JerryLiu720/zectrix-agent-status
 cd zectrix-agent-status
 ```
 
-**3. 运行安装脚本**（IP 换成你自己的）
+**2. 运行安装脚本**
 
 ```bash
-./install.sh 192.168.1.100
+./install.sh            # 自动发现设备 IP
+./install.sh 192.168.1.100   # 也可以手动指定
 ```
 
 `install.sh` 会：装 cmake（pip，不走 brew）→ 拉取 Zectrix SDK（codeload 绕过 github.com）→ 编译 `watch` → 安装三个 LaunchAgent（渲染 daemon、设备推送、日志轮转）。
@@ -148,7 +173,7 @@ python3 agent_status.py --selftest        # 渲染四页并校验尺寸（安装
 python3 agent_status.py --demo            # 用示例数据渲染
 python3 tests/test_wrap.py                 # 折行/清洗的回归测试
 python3 scripts/make_screenshots.py        # 重出 README 截图（page0-3 + preview + demo.gif）
-python3 scripts/resolve_ip.py              # 设备 IP 变了时手动找回
+./bin/zectrix discover                     # 设备 IP 变了时重新找
 python3 scripts/mcp_server.py              # 以 MCP server 方式运行（stdio）
 ~/zectrix-agent-status/bin/zectrix-watch <IP> status.png gray16
 ```
@@ -202,7 +227,7 @@ Stop                          → 标记「空闲」，从 transcript 取最后�
 
 会先备份 `~/.claude/settings.json`，只增删本项目自己的 hook。
 
-### 4. 数据格式（stats.json）
+### 3. 数据格式（stats.json）
 
 任何 agent 只要能写出下面这个 JSON，就能接进来（字段都可选，缺省即留空）：
 
@@ -243,7 +268,7 @@ Stop                          → 标记「空闲」，从 transcript 取最后�
 写文件建议**原子替换**（先写 `.tmp` 再 rename），避免读到写了一半的 JSON；本项目自带的
 `zectrix-report` 已经这样处理。
 
-### 3. MCP server（Claude Code / Cursor / 任何 MCP 客户端）
+### 4. MCP server（Claude Code / Cursor / 任何 MCP 客户端）
 
 ```bash
 claude mcp add zectrix -- python3 <repo>/scripts/mcp_server.py
@@ -287,21 +312,10 @@ claude mcp add zectrix -- python3 <repo>/scripts/mcp_server.py
 | `stats_file` | 路径 | `source=json` 时读取的文件（支持 `~`） |
 | `lang` | `zh` / `en` | 界面语言，默认 `zh` |
 | `alert_low_balance` | 数字 | 余额低于此值时告警并响一声，默认 `10` |
+| `spend_mode` | `own` / `account` | json 源的花费口径：`own`（默认，只认源里的 `spend_today`）或 `account`（按账户余额降幅） |
 
-当 `source=json` 时，**任何助手**（Codex、Claude Code、自研 Bot…）只要定期写一个 JSON 即可，格式见 `stats.example.json`：
-
-| 字段 | 含义 |
-|---|---|
-| `model` | 当前模型名 |
-| `balance` / `granted` | 账户余额 / 赠金 |
-| `spend_today` | 今日花费 |
-| `messages_today` | 今日消息数 |
-| `memory_count` / `skill_count` | 记忆条数 / 技能个数 |
-| `week` | 近 7 天消息数（7 个整数） |
-| `cron` | `[{name, next, schedule}]` 定时任务 |
-| `active` / `elapsed` | 是否正在处理 / 本轮已运行秒数 |
-| `battery` / `charging` | 设备电量等（可选，通常由 watch 自动填） |
-| `last_reply` / `recent` | `{role, content, ts}` 最近回复 / 最近几条 |
+当 `source=json` 时，**任何助手**（Codex、Claude Code、自研 Bot…）只要定期写一个 JSON 即可，
+字段与示例见上文「数据格式（stats.json）」。
 
 文件修改后会自动重新加载（按 mtime 判断），不需要重启进程。
 
@@ -317,12 +331,11 @@ claude mcp add zectrix -- python3 <repo>/scripts/mcp_server.py
 
 | 需求 | 命令 | 结果 |
 |---|---|---|
-| 断开屏幕（人还在） | `./scripts/zectrix pause` | 断开设备；终端里会问「要同时关进程吗」 |
-| 断开并直接关进程（AI 用） | `./scripts/zectrix off` | 断开设备 + 结束进程 |
-| 只关进程 | `./scripts/stop.sh` | 结束进程，设备回主页 |
-| 重新打开 | `./scripts/start.sh` | 启动并连接设备 |
-| 改完代码重启 | `./restart.sh` | 重启渲染 daemon 与推送进程 |
-| 看状态 | `./scripts/zectrix status` | 屏幕 / 进程 / 心跳 / 最近日志 |
+| 暂停推送（渲染继续） | `zectrix pause` | 断开设备，进程保留 |
+| 恢复推送 | `zectrix resume` | 重新连接设备 |
+| 断开并关进程 | `zectrix off` | 断开设备 + 结束进程 |
+| 改完代码重启 | `zectrix restart` | 重启渲染 daemon 与推送进程 |
+| 看状态 | `zectrix status` | 设备 / 服务 / 数据源 / 最近日志 |
 | 彻底卸载 | `./scripts/uninstall.sh` | 停止并删除 LaunchAgent |
 
 `stop.sh` 不改动登录项设置；下次登录是否自动启动，取决于系统设置里的开关。
@@ -331,7 +344,7 @@ claude mcp add zectrix -- python3 <repo>/scripts/mcp_server.py
 
 | 现象 | 原因 / 解法 |
 |---|---|
-| `Error: NoDevice` | SDK 的 mDNS 自动发现不稳；**直接传 IP** |
+| `Error: NoDevice` | 设备 IP 变了或不在线；运行 `zectrix discover`，或手动传 IP |
 | `Error: Busy` | 设备被上一个连接占着，等 2 秒（本项目会自动重试） |
 | 中文显示成方块 | 本机 Pillow 打不开 `PingFang.ttc`，已改用 `Hiragino Sans GB`；12/13px 数字有字形缺陷，统一用 10/11/14px |
 | 按键没反应 | 页码文件必须与 PNG **同目录**；本版已内置 |
