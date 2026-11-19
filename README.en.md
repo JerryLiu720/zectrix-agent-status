@@ -67,6 +67,11 @@ Change the model, the agent or the provider and it still works.
   according to charge, with a `!` when ≤20% and not charging.
 - **Bilingual UI**: set `"lang": "zh" | "en"` in `config.json` (default Chinese). The English UI uses
   full weekday names to avoid M/T ambiguity.
+- **Notifications**: any script or MCP client can push a title + body; it disappears after `ttl` seconds.
+- **Low-balance alert**: below `alert_low_balance` (default 10) the subtitle shows `! Low balance ¥X`
+  and the device beeps once per alert.
+- **Connection chimes**: a high tone on connect, a low tone on disconnect; set `ZECTRIX_BEEP=0` to mute.
+- **IP self-healing**: if DHCP moves the device, the IP is rediscovered (cache → ping sweep → probe, 1–10 s).
 - **Version marker**: the footer shows the current version so bug reports can be matched to a release.
 - **Zero-config trial**: if no local assistant state is found it falls back to sample data (footer
   marked "demo").
@@ -82,6 +87,29 @@ Change the model, the agent or the provider and it still works.
         ▲                                                                             │
         └──────────────── ui_state.txt (page number, same dir as PNG) ◀── ↑/↓ keys ──┘
 ```
+
+## After install
+
+`./install.sh` takes no arguments and finds the device IP automatically. Only three things left:
+
+```bash
+zectrix status                  # device, services, data source
+zectrix setup                   # wizard: assistant / language / low-balance threshold
+zectrix connect claude-code     # install hooks and connect Claude Code
+```
+
+Other commands:
+
+```bash
+zectrix connect hermes          # switch back to Hermes
+zectrix connect codex           # write notify into ~/.codex/config.toml
+zectrix discover                # find the device again if its IP changed
+zectrix pause / resume          # pause / resume pushing
+zectrix restart                 # restart renderer and pusher
+```
+
+**No config file needed**: if `~/.hermes/state.db` exists it uses Hermes, otherwise
+`~/zectrix-stats.json`, and only falls back to sample data when neither exists.
 
 ## Install with an AI (recommended)
 
@@ -173,6 +201,8 @@ python3 agent_status.py --selftest        # render all pages and check dimension
 python3 agent_status.py --demo            # render with sample data
 python3 tests/test_wrap.py                # regression tests for wrapping/cleaning
 python3 scripts/make_screenshots.py       # regenerate README screenshots (page0-3 + preview + demo.gif)
+python3 scripts/resolve_ip.py             # rediscover the device IP if DHCP moved it
+python3 scripts/mcp_server.py             # run as an MCP server (stdio)
 ~/zectrix-agent-status/bin/zectrix-watch <IP> status.png gray16
 ```
 
@@ -197,16 +227,117 @@ Then restart the renderer:
 Set `"lang": "zh"` to switch back. The English UI covers every label, time format and weekday name on
 all four pages. `config.json` changes need a restart; `stats_file` reloads automatically on mtime.
 
+## Connecting other agents (three ways, and they can coexist)
+
+### 1. One-line report (any agent, any language)
+
+```bash
+./bin/zectrix-report --active --elapsed 12 --model gpt-6 --spend 0.4
+./bin/zectrix-report --idle --reply "Refactor done, tests pass"
+./bin/zectrix-report --inc-messages 1 --inc-spend 0.02
+```
+
+Fields match `stats.example.json`; `--inc-*` are increments, handy after each call.
+
+### 2. Claude Code hooks (automatic, no changes to Claude Code)
+
+```bash
+python3 scripts/install_claude_hooks.py     # uninstall: --remove
+```
+
+After installing:
+
+```
+UserPromptSubmit / PreToolUse → mark "working", increment today's count, maintain the 7-day array
+Stop                          → mark "idle", read the last reply and model from the transcript
+every trigger (max once / 5 min) → read the DeepSeek balance; spend is derived from the balance drop
+```
+
+It backs up `~/.claude/settings.json` first and only touches its own hooks.
+
+### 4. Data format (stats.json)
+
+Any agent that can write the following JSON can be plugged in (all fields optional):
+
+```json
+{
+  "model": "claude-sonnet-4",
+  "balance": "88.80",
+  "granted": "8.80",
+  "spend_today": 12.34,
+  "messages_today": 512,
+  "memory_count": 77,
+  "skill_count": 21,
+  "week": [10, 20, 30, 0, 44, 5, 512],
+  "active": true,
+  "elapsed": 95,
+  "battery": 66,
+  "charging": true,
+  "last_reply": { "role": "assistant", "content": "example reply", "ts": 1792595000 },
+  "recent": [ { "role": "assistant", "content": "example reply", "ts": 1792595000 } ],
+  "cron": [ { "name": "daily digest", "next": "2026-10-22T09:00:00", "schedule": "0 9 * * *" } ]
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `model` | string | Model name, shown on page 1 |
+| `balance` / `granted` | string | Balance / granted credit |
+| `spend_today` | number | Spend today; if omitted, estimated from the balance drop |
+| `messages_today` | int | Messages today |
+| `memory_count` / `skill_count` | int | The two counters at the bottom of page 2 |
+| `week` | int[7] | Messages per day, Monday to Sunday |
+| `active` / `elapsed` | bool / number | Working? / seconds elapsed this turn |
+| `last_reply` | object | `{role, content, ts}`, `ts` in Unix seconds |
+| `recent` | object[] | Recent messages, first 3 are used |
+| `cron` | object[] | `{name, next, schedule}`, `next` is ISO time |
+| `battery` / `charging` | int / bool | Optional; normally written by the pusher |
+
+Write atomically (`.tmp` then rename) so a reader never sees half a file — `zectrix-report`
+already does this.
+
+### 3. MCP server (Claude Code / Cursor / any MCP client)
+
+```bash
+claude mcp add zectrix -- python3 <repo>/scripts/mcp_server.py
+```
+
+| Tool | Arguments | Effect |
+|---|---|---|
+| `display_status` | `title`, `body`, `ttl` | Show a notification on the screen |
+| `clear_status` | — | Remove it immediately |
+
+### Multiple agents at once (`sources`)
+
+The old `source` key allows only one source; `sources` shows several agents together:
+
+```json
+{
+  "sources": [
+    { "type": "hermes" },
+    { "type": "json", "path": "~/claude-stats.json", "label": "Claude Code" },
+    { "type": "json", "path": "~/codex-stats.json",  "label": "Codex" }
+  ]
+}
+```
+
+- The first entry is the **primary** source: balance, spend and message counts come from it
+- The others: when active, the page-1 subtitle shows `<label> · working`; page 2 shows each agent's message count next to its title
+- Without `sources`, the old `source` / `stats_file` behaviour is unchanged (fully backward compatible)
+- Full example: `config.sources.example.json`
+
 ## Plug in another assistant (config only, no code changes)
 
 Copy `config.example.json` to `config.json`:
 
 | Field | Values | Meaning |
 |---|---|---|
-| `source` | `hermes` / `json` | `hermes` = read local Hermes data; `json` = read a stats file written by any assistant |
+| `sources` | array | **Recommended**: multiple sources, the first one is primary (see "Multiple agents at once") |
+| `source` | `hermes` / `json` | Legacy single-source form, still supported |
 | `assistant_name` | string | Name shown in the header, default `HERMES` |
 | `stats_file` | path | File read when `source=json` (supports `~`) |
 | `lang` | `zh` / `en` | UI language, default `zh` |
+| `alert_low_balance` | number | Alert and beep when balance drops below this, default `10` |
 
 With `source=json`, **any assistant** (Codex, Claude Code, a custom bot…) just writes a JSON file
 periodically; the schema is in `stats.example.json`:
@@ -225,6 +356,12 @@ periodically; the schema is in `stats.example.json`:
 | `last_reply` / `recent` | `{role, content, ts}` latest reply / latest messages |
 
 The file is reloaded automatically when it changes (by mtime); no restart needed.
+
+**No Hermes required**: if you only use Claude Code or Codex, put the json source first in `sources`.
+Balance, spend, message count, last reply and the 7-day chart all come from the json source.
+
+⚠️ When the primary source is json, the renderer **never falls back to Hermes data**: fields the
+source does not provide show `—` or `0`, so Hermes numbers are never presented as another agent's.
 
 ## Stop / start / uninstall
 
@@ -262,6 +399,7 @@ is controlled by **System Settings → General → Login Items**.
 - A panel refresh takes ~2.5 s; presses during a refresh are buffered by the device (~2), so bursts are coalesced
 - **The computer must stay awake**: rendering and pushing happen locally; if it sleeps or shuts down the panel keeps the last frame
 - The English UI (`lang: en`) covers all labels and time formats on the four pages; cron expressions are translated only for common patterns (daily / weekly / monthly / weekdays / every N minutes / every N hours) and shown as-is otherwise
+- Notifications and chimes rely on the device speaker; `ZECTRIX_BEEP=0` mutes connect/disconnect/alert tones
 - Verified only on Apple Silicon macOS; Windows / Linux untested
 
 ## License

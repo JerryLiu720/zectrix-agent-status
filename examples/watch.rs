@@ -9,7 +9,7 @@ use std::{
 };
 
 use tokio::sync::mpsc;
-use zectrix_sdk::{Device, Event, ImageFormat, Key, KeyAction, OpenOptions};
+use zectrix_sdk::{AudioClip, Device, Event, ImageFormat, Key, KeyAction, OpenOptions};
 
 fn parse_format(s: &str) -> Result<ImageFormat, String> {
     match s {
@@ -28,6 +28,20 @@ fn fingerprint(bytes: &[u8]) -> u64 {
         h = h.wrapping_mul(0x100000001b3);
     }
     h
+}
+
+/// 生成一个短提示音（16kHz 单声道 PCM16）
+fn tone(freq: f32, ms: u64) -> AudioClip {
+    let n = (16000 * ms / 1000) as usize;
+    let samples = (0..n)
+        .map(|i| ((i as f32 * freq * std::f32::consts::TAU / 16000.).sin() * 5500.) as i16)
+        .collect();
+    AudioClip { samples }
+}
+
+/// ZECTRIX_BEEP=0 可关闭全部提示音
+fn beeps_on() -> bool {
+    std::env::var("ZECTRIX_BEEP").map(|v| v != "0").unwrap_or(true)
 }
 
 fn unix_now() -> u64 {
@@ -86,6 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bat_path = dir.join("battery.txt"); // 电量：百分比,充电中(1/0)
     let pages_path = dir.join("pages.txt"); // 渲染器写的页数
     let force_path = dir.join("force.req"); // 确认键：请求渲染器刷新数据
+    let beep_path = dir.join("beep.req");   // 告警：渲染器写文件，这里播一声
 
     let pages: i32 = fs::read_to_string(&pages_path)
         .ok()
@@ -101,6 +116,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 外层：断线后自动重连
     loop {
         let device = Arc::new(open_with_retry(&target).await);
+        if beeps_on() {
+            match device.play(&tone(1046., 140), 45).await {
+                Ok(_) => println!("连接提示音"),
+                Err(e) => println!("连接提示音失败: {e}"),
+            }
+        }
 
         // 独立协程持续消费事件：推送图像时按键也不会丢
         let (tx, mut rx) = mpsc::channel::<Event>(128);
@@ -157,6 +178,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_millis(200)) => {
+                    // 告警提示音（渲染器在告警出现时写 beep.req）
+                    if beep_path.exists() {
+                        let _ = fs::remove_file(&beep_path);
+                        let samples: Vec<i16> = (0..2880)   // 0.18s @ 16kHz
+                            .map(|i| ((i as f32 * 880. * std::f32::consts::TAU / 16000.).sin() * 6000.) as i16)
+                            .collect();
+                        match device.play(&AudioClip { samples }, 60).await {
+                            Ok(_) => println!("提示音已播放"),
+                            Err(e) => println!("提示音失败: {e}"),
+                        }
+                    }
                     if last_hb.elapsed() >= Duration::from_secs(10) {
                         let _ = fs::write(&hb_path, format!("{}", unix_now()));
                         last_hb = Instant::now();
@@ -263,9 +295,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             pending = true;
                             pending_since = Some(Instant::now());
                         }
-                        Some(Event::Disconnected { .. }) => { println!("设备已断开，准备重连…"); break; }
+                        Some(Event::Disconnected { .. }) => {
+                            println!("设备已断开，准备重连…");
+                            if beeps_on() {
+                                match device.play(&tone(520., 200), 45).await {
+                                    Ok(_) => println!("断开提示音"),
+                                    Err(e) => println!("断开提示音失败: {e}"),
+                                }
+                            }
+                            break;
+                        }
                         Some(_) => {}
-                        None => { println!("事件流结束，准备重连…"); break; }
+                        None => {
+                            println!("事件流结束，准备重连…");
+                            if beeps_on() {
+                                let _ = device.play(&tone(520., 200), 45).await;
+                            }
+                            break;
+                        }
                     }
                 }
             }

@@ -12,6 +12,12 @@ done
 mkdir -p "$DIR/logs"
 rm -f "$DIR/PAUSED"
 
+# 设备 IP 自愈：DHCP 换了地址也能自动找回（探测约 1–10 秒）
+if [ -x "$DIR/bin/zectrix-status" ] && [ -f "$DIR/scripts/resolve_ip.py" ]; then
+  NEWIP=$("$PY" "$DIR/scripts/resolve_ip.py" --config "$DIR/config.txt" --bin "$DIR/bin/zectrix-status" --quiet 2>/dev/null || true)
+  [ -n "$NEWIP" ] && IP="$NEWIP"
+fi
+
 echo "打开状态屏…"
 ok=0
 for L in com.zectrix.agentstatus.daemon com.zectrix.agentstatus.watch com.zectrix.agentstatus.logrotate; do

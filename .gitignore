@@ -12,3 +12,8 @@ logs/
 config.json
 __pycache__/
 *.pyc
+
+# 运行时状态（通知/告警/提示音）
+.alert_state
+notify.json
+beep.req

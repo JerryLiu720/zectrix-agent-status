@@ -17,7 +17,7 @@
 """
 import os, sys, json, sqlite3, glob, argparse, datetime, re, time, urllib.request
 
-H = os.path.expanduser("~/.hermes")
+H = os.environ.get("ZECTRIX_HOME") or os.path.expanduser("~/.hermes")
 W, HT = 400, 300
 BASE = os.environ.get("ZECTRIX_BASE") or os.path.dirname(os.path.abspath(__file__))
 STATE = os.path.join(BASE, "ui_state.json")
@@ -26,9 +26,12 @@ PAGE_KEYS = ["overview", "stats", "schedule", "log"]
 
 # ---------------- 配置：支持接入任意助手 ----------------
 CONFIG_PATH = os.path.join(BASE, "config.json")
-STATS = {}            # 外部助手提供的统计数据（source=json 时生效）
+STATS = {}            # 主数据源（兼容旧的 source/stats_file）
 CFG = {}              # config.json 内容
 STATS_MTIME = 0
+SOURCES = []          # 多数据源：[{label, type, path, data}]
+PRIMARY = "hermes"    # 主数据源：hermes 或 json（sget 读主源）
+_DATA_CACHE = {}      # path -> {"mtime": float, "data": dict}
 
 # ---------------- 多语言（config.json: "lang": "zh" | "en"） ----------------
 STRINGS = {
@@ -40,7 +43,7 @@ STRINGS = {
         "model": "模型", "msgs_today": "今日 {n} 条消息",
         "spent_today": "今日花费", "since": " · {t} 起",
         "balance": "账户余额", "min_ago": " · {n} 分钟前", "just_now": " · 刚刚",
-        "credit": "赠金 ¥{v}", "recent": "最近消息", "no_records": "暂无记录",
+        "credit": "赠金 ¥{v}", "credit_na": "赠金 —", "recent": "最近消息", "no_records": "暂无记录",
         "last7": "近 7 日消息", "today_n": "今日 {n} 条", "mem": "记忆 {n}", "skills": "技能 {n}",
         "today": "今天", "date_wd": "  {wd}", "cron": "定时任务", "none": "无",
         "role_user": "我", "role_ai": "AI", "role_tool": "工具",
@@ -55,6 +58,8 @@ STRINGS = {
         "cron_monthly": "每月 {d} 日 {t}", "cron_daily": "每天 {t}",
         "cron_every_min": "每 {n} 分钟", "cron_every_hour": "每 {n} 小时",
         "selftest_pass": "通过", "selftest_fail": "失败",
+        "notice": "通知", "low_balance": "! 余额偏低 ¥{v}",
+        "agent_working": "{label} · 正在处理", "agent_done": "{label} · {ago}完成",
     },
     "en": {
         "overview": "Overview", "stats": "Stats", "schedule": "Schedule", "log": "Log",
@@ -64,7 +69,7 @@ STRINGS = {
         "model": "MODEL", "msgs_today": "{n} msgs today",
         "spent_today": "TODAY SPENT", "since": " · since {t}",
         "balance": "BALANCE", "min_ago": " · {n} min ago", "just_now": " · just now",
-        "credit": "Credit ¥{v}", "recent": "RECENT", "no_records": "No messages",
+        "credit": "Credit ¥{v}", "credit_na": "Credit —", "recent": "RECENT", "no_records": "No messages",
         "last7": "Last 7 days", "today_n": "Today {n}", "mem": "Mem {n}", "skills": "Skills {n}",
         "today": "Today", "date_wd": ", {wd}", "cron": "Cron", "none": "None",
         "role_user": "Me", "role_ai": "AI", "role_tool": "Tool",
@@ -79,6 +84,8 @@ STRINGS = {
         "cron_monthly": "Monthly on {d}, {t}", "cron_daily": "Daily {t}",
         "cron_every_min": "every {n} min", "cron_every_hour": "every {n} h",
         "selftest_pass": "passed", "selftest_fail": "failed",
+        "notice": "NOTICE", "low_balance": "! Low balance ¥{v}",
+        "agent_working": "{label} · working", "agent_done": "{label} · done {ago}",
     },
 }
 
@@ -99,21 +106,74 @@ def load_config():
     except Exception:
         return {}
 
-def refresh_stats():
-    """读取外部统计数据文件（其他助手只需按格式写这个 JSON）"""
-    global STATS, STATS_MTIME, CFG
+def _json_sources(cfg):
+    """把配置解析成 json 数据源列表；旧配置（source/stats_file）等价于只有一个源。"""
+    out = []
+    srcs = cfg.get("sources")
+    if isinstance(srcs, list) and srcs:
+        for s in srcs:
+            if (s or {}).get("type") == "json" and s.get("path"):
+                out.append({"type": "json",
+                            "path": os.path.expanduser(s["path"]),
+                            "label": s.get("label") or os.path.basename(s["path"])})
+        return out
+    if cfg.get("source") == "json":
+        p = os.path.expanduser(cfg.get("stats_file", "~/zectrix-stats.json"))
+        out.append({"type": "json", "path": p, "label": cfg.get("label") or "JSON"})
+    return out
+
+def assistant_label():
+    """顶栏名字：配置优先，其次是主数据源的 label。"""
+    name = CFG.get("assistant_name")
+    if name:
+        return str(name)
+    for s in (CFG.get("sources") or []):
+        if (s or {}).get("path"):
+            return str(s.get("label") or "AGENT")
+    return "HERMES"
+
+def effective_config():
+    """没有 sources/source 时自动判断：有 Hermes 用 Hermes，否则用 ~/zectrix-stats.json。"""
     cfg = load_config()
+    if not cfg.get("sources") and not cfg.get("source"):
+        if os.path.exists(os.path.join(H, "state.db")):
+            cfg = dict(cfg, sources=[{"type": "hermes"}])
+        else:
+            p = os.path.expanduser("~/zectrix-stats.json")
+            if os.path.exists(p):
+                cfg = dict(cfg, sources=[{"type": "json", "path": p, "label": "Agent"}])
+    return cfg
+
+def _primary_from_cfg(cfg):
+    srcs = cfg.get("sources")
+    if isinstance(srcs, list) and srcs:
+        for s in srcs:
+            if (s or {}).get("type") == "hermes":
+                return "hermes"
+            if (s or {}).get("type") == "json":
+                return "json"
+    return "json" if cfg.get("source") == "json" else "hermes"
+
+def refresh_stats():
+    """读取所有 json 数据源；主源由 sources 里的顺序决定（默认 Hermes）。"""
+    global STATS, STATS_MTIME, CFG, SOURCES, PRIMARY
+    cfg = effective_config()
     CFG = cfg
-    if cfg.get("source") != "json":
-        return cfg
-    path = os.path.expanduser(cfg.get("stats_file", "~/zectrix-stats.json"))
-    try:
-        mtime = os.path.getmtime(path)
-        if mtime != STATS_MTIME:
-            STATS = json.load(open(path, encoding="utf-8"))
-            STATS_MTIME = mtime
-    except Exception:
-        pass
+    srcs = _json_sources(cfg)
+    for s in srcs:
+        p = s["path"]
+        try:
+            m = os.path.getmtime(p)
+            c = _DATA_CACHE.get(p)
+            if not c or c["mtime"] != m:
+                c = {"mtime": m, "data": json.load(open(p, encoding="utf-8"))}
+                _DATA_CACHE[p] = c
+            s["data"] = c["data"]
+        except Exception:
+            s["data"] = {}
+    SOURCES = srcs
+    PRIMARY = _primary_from_cfg(cfg)
+    STATS = {} if PRIMARY == "hermes" else (srcs[0]["data"] if srcs else {})
     return cfg
 
 def sget(key, default=None):
@@ -121,7 +181,7 @@ def sget(key, default=None):
     return STATS.get(key, default)
 
 DEMO = False   # True = 当前渲染的是示例数据
-VERSION = "0.3.0"
+VERSION = "1.0.0"
 _last_png = None   # 内容去重：没变化就不写文件，避免墨水屏频繁刷新
 
 from PIL import Image, ImageDraw, ImageFont
@@ -144,6 +204,7 @@ def db(path):
 def model_name():
     v = sget("model")
     if v: return v
+    if PRIMARY != "hermes": return "—"
     try:
         cfg = open(os.path.join(H, "config.yaml"), encoding="utf-8").read()
         m = re.search(r"^model:\s*\n\s+provider:\s*(\S+)\s*\n\s+default:\s*(\S+)", cfg, re.M)
@@ -154,6 +215,7 @@ def model_name():
 def count_facts():
     v = sget("memory_count")
     if v is not None: return v
+    if PRIMARY != "hermes": return 0
     try:
         return db(os.path.join(H, "memory_store.db")).execute("select count(*) from facts").fetchone()[0]
     except Exception:
@@ -162,6 +224,7 @@ def count_facts():
 def count_skills():
     v = sget("skill_count")
     if v is not None: return v
+    if PRIMARY != "hermes": return 0
     try:
         return len([p for p in glob.glob(os.path.join(H, "skills/**/SKILL.md"), recursive=True)
                     if "/.archive/" not in p])
@@ -200,35 +263,60 @@ def link_status():
     except Exception:
         return T("disconnected"), False
 
+def _noise(s):
+    """网关/系统注入的消息不适合上屏（JSON 元数据、压缩提示等）。"""
+    t = (s or "").lstrip()
+    return (t.startswith("Gateway message origin")
+            or t.startswith("[IMPORTANT:")
+            or t.startswith("[CONTEXT COMPACTION")
+            or t.startswith("[INTERNAL NOTIFICATION")
+            or t.startswith("[OUT-OF-BAND")
+            or t.startswith("[ASYNC DELEGATION")
+            or t.startswith("[System:")
+            or t.startswith("MEDIA:"))
+
 def last_reply():
     """最后一条助手回复（不是用户消息）"""
     v = sget("last_reply")
     if v: return v
+    if PRIMARY != "hermes": return None
     try:
-        row = db(os.path.join(H, "state.db")).execute(
+        rows = db(os.path.join(H, "state.db")).execute(
             """select role, content, timestamp from messages
                where role='assistant' and content is not null and length(trim(content))>0
-               order by timestamp desc limit 1""").fetchone()
-        return {"role": row[0], "content": row[1] or "", "ts": float(row[2] or 0)} if row else None
+               order by timestamp desc limit 8""").fetchall()
+        for row in rows:
+            if not _noise(row[1]):
+                return {"role": row[0], "content": row[1] or "", "ts": float(row[2] or 0)}
+        return None
     except Exception:
         return None
 
 def recent_msgs(n=3):
     v = sget("recent")
     if v: return list(v)[:n]
+    if PRIMARY != "hermes": return []
     try:
         rows = db(os.path.join(H, "state.db")).execute(
             """select role, content, timestamp from messages
                where role in ('user','assistant')
                  and content is not null and length(trim(content)) > 12
-               order by timestamp desc limit ?""", (n,)).fetchall()
-        return [{"role": r[0], "content": r[1], "ts": float(r[2] or 0)} for r in rows]
+               order by timestamp desc limit ?""", (n * 4,)).fetchall()
+        out = []
+        for r in rows:
+            if _noise(r[1]):
+                continue
+            out.append({"role": r[0], "content": r[1], "ts": float(r[2] or 0)})
+            if len(out) >= n:
+                break
+        return out
     except Exception:
         return []
 
 def today_msg_count():
     v = sget("messages_today")
     if v is not None: return v
+    if PRIMARY != "hermes": return 0
     try:
         start = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
         return db(os.path.join(H, "state.db")).execute(
@@ -264,6 +352,7 @@ def cron_text(expr):
 def cron_jobs():
     v = sget("cron")
     if v is not None: return v
+    if PRIMARY != "hermes": return []
     try:
         d = json.load(open(os.path.join(H, "cron/jobs.json"), encoding="utf-8"))
         jobs = d if isinstance(d, list) else d.get("jobs", [])
@@ -282,6 +371,7 @@ def cron_jobs():
 def balance(ttl=600):
     v = sget("balance")
     if v is not None: return str(v), str(sget("granted", "0.00")), 0.0
+    if PRIMARY != "hermes": return "—", "—", None
     try:
         if os.path.exists(BAL_CACHE):
             c = json.load(open(BAL_CACHE))
@@ -353,6 +443,8 @@ def daily_spend(total_str):
     首次运行当天只能从启动时刻开始计，返回 (金额, 起始时间戳)"""
     v = sget("spend_today")
     if v is not None: return float(v), None
+    if PRIMARY != "hermes" and (CFG.get("spend_mode") or "own") != "account":
+        return None, None
     try:
         bal = float(total_str)
     except Exception:
@@ -379,6 +471,8 @@ def week_counts():
     """最近 7 天每天的消息数（含今天），用于柱状图"""
     v = sget("week")
     if v: return v
+    if PRIMARY != "hermes":
+        return [0] * 7          # json 主源没提供 week 时不要拿 Hermes 的数据冒充
     try:
         c = db(os.path.join(H, "state.db"))
         today = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -394,6 +488,7 @@ def turn_state():
     """返回 (是否在处理, 本轮已运行秒数)。依据 Hermes 的 session_turn_leases。
     租约存在且未过期 = 正在跑一轮；否则空闲。"""
     if "active" in STATS: return bool(STATS["active"]), float(STATS.get("elapsed", 0))
+    if PRIMARY != "hermes": return False, 0.0
     try:
         c = db(os.path.join(H, "state.db"))
         row = c.execute("""select acquired_at, expires_at from session_turn_leases
@@ -412,6 +507,58 @@ def is_active():
     return bool(m and (time.time() - m["ts"]) < 120)
 
 # ---------------- 渲染 ----------------
+NOTIFY_PATH = os.path.join(BASE, "notify.json")
+ALERT_STATE = os.path.join(BASE, ".alert_state")
+BEEP_REQ = os.path.join(BASE, "beep.req")
+
+def other_agents():
+    """非主源的 agent：返回 [{"label", "active", "ts"}]，只保留正在跑或 10 分钟内完成的。"""
+    out = []
+    for s in SOURCES[0 if PRIMARY == "hermes" else 1:]:
+        d = s.get("data") or {}
+        lr = d.get("last_reply") or {}
+        ts = float(lr.get("ts") or 0)
+        active = bool(d.get("active"))
+        if active or (ts and time.time() - ts < 600):
+            out.append({"label": s.get("label") or "agent", "active": active, "ts": ts})
+    return out
+
+def notification():
+    """外部（MCP / 任意脚本）推送的通知：{title, body, ts, ttl}，过期返回 None。"""
+    try:
+        d = json.load(open(NOTIFY_PATH, encoding="utf-8"))
+        if time.time() - float(d.get("ts", 0)) > float(d.get("ttl", 300)):
+            return None
+        return d
+    except Exception:
+        return None
+
+def alert_text(bal):
+    """余额低于阈值时返回提示文字，否则 None。"""
+    try:
+        thr = float(CFG.get("alert_low_balance", 10))
+        b = float(bal)
+    except Exception:
+        return None
+    return T("low_balance", v=f"{b:.2f}") if b < thr else None
+
+def ping_beep(level):
+    """告警出现时写一次 beep.req，由 watch 播放提示音（同一告警只响一次）。"""
+    try:
+        prev = open(ALERT_STATE).read().strip() if os.path.exists(ALERT_STATE) else ""
+    except Exception:
+        prev = ""
+    cur = level or ""
+    if cur and cur != prev:
+        try:
+            open(BEEP_REQ, "w").write(cur)
+        except Exception:
+            pass
+    try:
+        open(ALERT_STATE, "w").write(cur)
+    except Exception:
+        pass
+
 def render(out, page=0):
     refresh_stats()
     page = page % len(PAGE_KEYS)
@@ -420,7 +567,7 @@ def render(out, page=0):
 
     # 顶栏
     d.rectangle([0, 0, W, 34], fill=0)
-    d.text((10, 7), str(CFG.get("assistant_name", "HERMES")).upper(), font=font(18), fill=255)
+    d.text((10, 7), assistant_label().upper(), font=font(18), fill=255)
     now = datetime.datetime.now().strftime("%m-%d %H:%M")
 
     # 右上角：电量图标（实心比例 + 百分比），从右往左排
@@ -486,11 +633,24 @@ def render(out, page=0):
             sub = T("turn_min", m=secs // 60, s=secs % 60) if secs >= 60 else T("turn_sec", s=secs)
         else:
             sub = T("last_reply", ago=ago(m["ts"])) if m else T("no_reply")
-        d.text((16, 120), sub, font=font(11, bold=False), fill=120)
+        al = alert_text(bal)
+        ping_beep(al)
+        busy = next((o for o in other_agents() if o["active"]), None)
+        if al:
+            d.text((16, 118), al, font=font(12), fill=0)
+        elif busy:
+            d.text((16, 118), T("agent_working", label=busy["label"]), font=font(12), fill=0)
+        else:
+            d.text((16, 120), sub, font=font(11, bold=False), fill=120)
 
         # 右侧：模型（小标题在上、名称放大，下方补今日消息数）
         mdl = model_name()
-        f_lbl, f_mdl = font(11), font(20)
+        f_lbl = font(11)
+        size = 20
+        f_mdl = font(size)
+        while d.textlength(mdl, font=f_mdl) > 170 and size > 13:
+            size -= 1
+            f_mdl = font(size)
         while d.textlength(mdl, font=f_mdl) > 170 and len(mdl) > 4:
             mdl = mdl[:-2] + "…"
         mx = W - 16 - d.textlength(mdl, font=f_mdl)
@@ -520,10 +680,10 @@ def render(out, page=0):
         d.text((bx, 146), blabel, font=font(11, bold=False), fill=125)
 
         # 金额位数多时自动降字号，保证「金额 + 赠金」不重叠
-        gtxt = T("credit", v=granted)
+        gtxt = T("credit_na") if str(granted).strip() in ("", "—", "None") else T("credit", v=granted)
         f_gift = font(10)
         w_gift = d.textlength(gtxt, font=f_gift)
-        num = f"¥{bal}"
+        num = "—" if str(bal).strip() in ("", "—", "None") else f"¥{bal}"
         size = 29
         for cand in (29, 26, 24, 22, 20):
             if bx + d.textlength(num, font=font(cand)) + 10 + w_gift <= W - 16:
@@ -538,10 +698,16 @@ def render(out, page=0):
 
         d.line([16, 204, W - 16, 204], fill=210)
 
-        # 最近消息（最多两行）
-        _rf = font(11, bold=False) if LANG() == "en" else font(10, bold=False)
-        d.text((16, 208 if LANG() == "en" else 210), T("recent"), font=_rf, fill=125)
-        if m:
+        # 最近消息（最多两行）；有外部通知时优先显示通知
+        nt = notification()
+        _rf = font(11, bold=False) if (LANG() == "en" or nt) else font(10, bold=False)
+        d.text((16, 208 if (LANG() == "en" or nt) else 210),
+               T("notice") if nt else T("recent"), font=_rf, fill=125)
+        if nt:
+            d.text((16, 224), clean_text(nt.get("title") or "", 40), font=font(14), fill=0)
+            lines = wrap_lines(d, clean_text(nt.get("body") or "", 64), 14, W - 32, 1)
+            d.text((16, 242), lines[0], font=font(14), fill=60)
+        elif m:
             body = clean_text(m["content"], 64)
             # 前缀与正文一起折行：否则首行按全宽折行，加上「N 分钟前 · 」后
             # 末尾会超出 400px 被裁掉，而下一行从被裁掉的字之后开始，那些字永远看不到。
@@ -556,6 +722,20 @@ def render(out, page=0):
     elif page == 1:
         # 统计：近 7 日消息
         d.text((16, 68), T("last7"), font=font(14), fill=110)
+        _others = SOURCES[0 if PRIMARY == "hermes" else 1:]
+        if _others:
+            parts = []
+            for s in _others[:2]:
+                sd = s.get("data") or {}
+                n = sd.get("messages_today")
+                lab = str(s.get("label") or "agent")
+                short = lab.split()[0] if " " in lab else lab   # "Claude Code" → "Claude"
+                parts.append(short + (f" {n}" if n is not None else ""))
+            txt = " · ".join(parts)
+            f_ag = font(11, bold=False)
+            while d.textlength(txt, font=f_ag) > 190 and len(txt) > 6:
+                txt = txt[:-2] + "…"
+            d.text((W - 16 - d.textlength(txt, font=f_ag), 69), txt, font=f_ag, fill=90)
         wc = week_counts()
         RX, base_y, max_h = 22, 198, 96
         bw, gap = 36, 14
@@ -593,12 +773,18 @@ def render(out, page=0):
             line(j["name"][:16], f"{fmt_next(j['next'])} · {cron_text(j['schedule'])}")
 
     else:
+        # 日志页：每条会话两行正文（14px），3 条共约 168px
+        yy = 66
         for m in recent_msgs(3):
             role = {"user": T("role_user"), "assistant": T("role_ai"), "tool": T("role_tool")}.get(m["role"], m["role"])
-            txt = clean_text(m["content"], 46)
-            if len(txt) > 46:
-                txt = txt[:46] + "…"
-            line(f"{role} · {ago(m['ts'])}", txt)
+            d.text((12, yy), f"{role} · {ago(m['ts'])}", font=font(11, bold=False), fill=110)
+            body = clean_text(m["content"], 90)
+            lines = wrap_lines(d, body, 14, W - 24, 2)
+            ly = yy + 14
+            for ln in lines:
+                d.text((12, ly), ln, font=font(14), fill=0)
+                ly += 18
+            yy = ly + 6
 
     # 底栏
     d.line([10, HT - 30, W - 10, HT - 30], fill=160)
@@ -799,7 +985,9 @@ if __name__ == "__main__":
     a = ap.parse_args()
 
     if a.demo or (not a.selftest and not os.path.exists(os.path.join(H, "state.db"))):
-        enable_demo()
+        # 没有 Hermes 也没有配置任何 json 源时才用示例数据
+        if not _json_sources(effective_config()):
+            enable_demo()
 
     if a.selftest:
         import tempfile

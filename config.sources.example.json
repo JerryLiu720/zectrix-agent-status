@@ -1,0 +1,10 @@
+{
+  "_说明": "多 agent 并存：第一个源是主源（余额/花费/消息量取它），其余源用于显示活动状态",
+  "sources": [
+    { "type": "hermes" },
+    { "type": "json", "path": "~/claude-stats.json", "label": "Claude Code" },
+    { "type": "json", "path": "~/codex-stats.json", "label": "Codex" }
+  ],
+  "lang": "zh",
+  "alert_low_balance": 10
+}

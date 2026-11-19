@@ -1,7 +1,9 @@
 {
-  "_说明": "复制为 config.json 生效。source=hermes 读 Hermes 本地数据；source=json 读其他助手写的 stats 文件",
-  "source": "hermes",
+  "_说明": "复制为 config.json 生效。sources 里第一个是主源（余额/花费/消息量取它）；没有 Hermes 时把 json 源放第一位。旧的 source/stats_file 写法仍然兼容。",
+  "sources": [
+    { "type": "hermes" }
+  ],
   "assistant_name": "HERMES",
   "lang": "zh",
-  "stats_file": "~/zectrix-stats.json"
+  "alert_low_balance": 10
 }

@@ -49,6 +49,10 @@
 - **护屏节流**：翻页立即刷新；数据类变化 5 分钟最多一次；内容不变绝不重绘
 - **设备电量**：连接时与每 5 分钟读取一次，顶栏显示 24×11 圆角电池图标（按剩余电量填充）；≤20% 且未充电时图标前出现 `!`
 - **中英双语**：`config.json` 里 `"lang": "zh" | "en"` 切换界面语言（默认中文）；英文界面用完整星期名，避免 M/T 歧义
+- **通知**：任何脚本或 MCP 客户端都能推一条「标题 + 正文」，过了 `ttl` 自动恢复原内容
+- **余额告警**：低于 `alert_low_balance`（默认 10）时副标题显示「! 余额偏低」，并让设备响一声（同一告警只响一次）
+- **连接提示音**：连上高音、断开发低音；`ZECTRIX_BEEP=0` 可全部关闭
+- **IP 自愈**：路由器换了地址也能自动找回（缓存 IP → ping 扫描 → 设备探测，通常 1–10 秒）
 - **版本标记**：页脚显示当前版本号，方便反馈时对齐
 - **零配置可试**：读不到本机助手状态时自动进入示例数据模式（页脚标注"示例数据"）
 - **十六灰阶**：中文用 Hiragino Sans GB 渲染，400×300 满屏
@@ -144,6 +148,8 @@ python3 agent_status.py --selftest        # 渲染四页并校验尺寸（安装
 python3 agent_status.py --demo            # 用示例数据渲染
 python3 tests/test_wrap.py                 # 折行/清洗的回归测试
 python3 scripts/make_screenshots.py        # 重出 README 截图（page0-3 + preview + demo.gif）
+python3 scripts/resolve_ip.py              # 设备 IP 变了时手动找回
+python3 scripts/mcp_server.py              # 以 MCP server 方式运行（stdio）
 ~/zectrix-agent-status/bin/zectrix-watch <IP> status.png gray16
 ```
 
@@ -168,16 +174,119 @@ python3 scripts/make_screenshots.py        # 重出 README 截图（page0-3 + pr
 `"lang": "zh"` 切回中文。英文界面覆盖四页全部标签、时间格式与星期名；`config.json` 改完需要重启，
 `stats_file` 则是按 mtime 自动重载、无需重启。
 
+## 接入其他 agent（三种方式，可多源并存）
+
+### 1. 一行命令上报（任何 agent、任何语言）
+
+```bash
+./bin/zectrix-report --active --elapsed 12 --model gpt-6 --spend 0.4
+./bin/zectrix-report --idle --reply "重构完成，测试全过"
+./bin/zectrix-report --inc-messages 1 --inc-spend 0.02
+```
+
+字段与 `stats.example.json` 一致；`--inc-*` 是增量，方便在每次调用后累加。
+
+### 2. Claude Code hooks（自动上报，无需改它的代码）
+
+```bash
+python3 scripts/install_claude_hooks.py     # 卸载：--remove
+```
+
+安装后：
+
+```
+UserPromptSubmit / PreToolUse → 标记「正在处理」，累加今日消息数，并维护 7 日数组
+Stop                          → 标记「空闲」，从 transcript 取最后一条回复和模型名
+每次触发（最多 5 分钟一次）  → 读 DeepSeek 余额；今日花费按余额降幅计算
+```
+
+会先备份 `~/.claude/settings.json`，只增删本项目自己的 hook。
+
+### 4. 数据格式（stats.json）
+
+任何 agent 只要能写出下面这个 JSON，就能接进来（字段都可选，缺省即留空）：
+
+```json
+{
+  "model": "claude-sonnet-4",
+  "balance": "88.80",
+  "granted": "8.80",
+  "spend_today": 12.34,
+  "messages_today": 512,
+  "memory_count": 77,
+  "skill_count": 21,
+  "week": [10, 20, 30, 0, 44, 5, 512],
+  "active": true,
+  "elapsed": 95,
+  "battery": 66,
+  "charging": true,
+  "last_reply": { "role": "assistant", "content": "示例回复", "ts": 1792595000 },
+  "recent": [ { "role": "assistant", "content": "示例回复", "ts": 1792595000 } ],
+  "cron": [ { "name": "每日简报", "next": "2026-10-22T09:00:00", "schedule": "0 9 * * *" } ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `model` | string | 当前模型名，显示在第 1 页右侧 |
+| `balance` / `granted` | string | 账户余额 / 赠金（字符串，保留两位） |
+| `spend_today` | number | 今日花费；不填时按余额降幅估算 |
+| `messages_today` | int | 今日消息数 |
+| `memory_count` / `skill_count` | int | 第 2 页底部的两个计数 |
+| `week` | int[7] | 近 7 天消息数，周一到周日 |
+| `active` / `elapsed` | bool / number | 是否正在处理 / 本轮已运行秒数 |
+| `last_reply` | object | `{role, content, ts}`，`ts` 为 Unix 秒 |
+| `recent` | object[] | 最近几条对话，最多用前 3 条 |
+| `cron` | object[] | `{name, next, schedule}`，`next` 为 ISO 时间 |
+| `battery` / `charging` | int / bool | 可选，通常由推送进程自动写入 |
+
+写文件建议**原子替换**（先写 `.tmp` 再 rename），避免读到写了一半的 JSON；本项目自带的
+`zectrix-report` 已经这样处理。
+
+### 3. MCP server（Claude Code / Cursor / 任何 MCP 客户端）
+
+```bash
+claude mcp add zectrix -- python3 <repo>/scripts/mcp_server.py
+```
+
+提供两个工具：
+
+| 工具 | 参数 | 作用 |
+|---|---|---|
+| `display_status` | `title`, `body`, `ttl` | 在屏幕上显示一条通知 |
+| `clear_status` | — | 立即清掉通知 |
+
+### 多 agent 并存（`sources`）
+
+旧的 `source` 只能二选一；`sources` 可以让多个 agent 同时显示：
+
+```json
+{
+  "sources": [
+    { "type": "hermes" },
+    { "type": "json", "path": "~/claude-stats.json", "label": "Claude Code" },
+    { "type": "json", "path": "~/codex-stats.json",  "label": "Codex" }
+  ]
+}
+```
+
+- 第一个是**主源**：余额、花费、消息量都取它
+- 其余源：正在处理时第 1 页副标题显示「<label> · 正在处理」；第 2 页标题右侧显示各自今日消息数
+- 不写 `sources` 时仍按旧的 `source` / `stats_file` 工作（完全兼容）
+- 完整示例：`config.sources.example.json`
+
 ## 接入其他助手（配置化，无需改代码）
 
 复制 `config.example.json` 为 `config.json`：
 
 | 字段 | 取值 | 说明 |
 |---|---|---|
-| `source` | `hermes` / `json` | `hermes`＝读本机 Hermes 数据；`json`＝读任意助手写的统计文件 |
+| `sources` | 数组 | **推荐**：多数据源，第一个是主源（见上文「多 agent 并存」） |
+| `source` | `hermes` / `json` | 旧写法，仍兼容：单数据源 |
 | `assistant_name` | 字符串 | 顶栏显示的名字，默认 `HERMES` |
 | `stats_file` | 路径 | `source=json` 时读取的文件（支持 `~`） |
 | `lang` | `zh` / `en` | 界面语言，默认 `zh` |
+| `alert_low_balance` | 数字 | 余额低于此值时告警并响一声，默认 `10` |
 
 当 `source=json` 时，**任何助手**（Codex、Claude Code、自研 Bot…）只要定期写一个 JSON 即可，格式见 `stats.example.json`：
 
@@ -195,6 +304,12 @@ python3 scripts/make_screenshots.py        # 重出 README 截图（page0-3 + pr
 | `last_reply` / `recent` | `{role, content, ts}` 最近回复 / 最近几条 |
 
 文件修改后会自动重新加载（按 mtime 判断），不需要重启进程。
+
+**只用 Claude Code / Codex、没有装 Hermes 也可以**：把 json 源放在 `sources` 第一位即可，
+余额/花费/消息量/最近回复/7 日柱状图都取 json 源。
+
+⚠️ 主源是 json 时**不会回退到 Hermes 的任何数据**：源里没提供的字段显示 `—` 或 `0`，
+避免把 Hermes 的数字伪装成别的 agent 的数据（记忆数、技能数、定时任务同样如此）。
 
 ## 停止 / 启动 / 卸载
 
@@ -231,6 +346,7 @@ python3 scripts/make_screenshots.py        # 重出 README 截图（page0-3 + pr
 - 设备刷新一次约 2.5 秒，刷新期间的按键由设备缓存（约 2 个），连按会合并刷新
 - **电脑需持续运行**：渲染与推送都在本机，电脑休眠或关机后画面停在最后一帧，不会继续更新
 - 英文界面（`lang: en`）覆盖四页全部标签与时间格式；cron 表达式只翻译常见规则（每天/每周/每月/工作日/每 N 分钟/每 N 小时），其余原样显示
+- 通知与提示音依赖设备扬声器；`ZECTRIX_BEEP=0` 可关闭连接/断开/告警提示音
 - 仅在 Apple Silicon macOS 实测通过；Windows / Linux 未验证
 
 ## License

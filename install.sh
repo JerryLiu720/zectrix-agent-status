@@ -5,7 +5,9 @@ set -euo pipefail
 
 IP="${1:-}"
 INTERVAL="${2:-3}"
-[ -z "$IP" ] && { echo "用法: ./install.sh <设备IP> [间隔秒]"; echo "提示: 设备 IP 可在设备「设置 → 网络」中查看"; exit 1; }
+if [ -z "$IP" ]; then
+  echo "未指定设备 IP —— 装完会自动发现（设备需和电脑在同一 Wi-Fi）"
+fi
 
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="$HOME/zectrix-agent-status"
@@ -14,7 +16,9 @@ LA="$HOME/Library/LaunchAgents"
 UID_N="$(id -u)"
 
 echo "==> [0/6] 预检设备连通性"
-if ping -c 1 -W 1500 "$IP" >/dev/null 2>&1; then
+if [ -z "$IP" ]; then
+  echo "    跳过（稍后自动发现）"
+elif ping -c 1 -W 1500 "$IP" >/dev/null 2>&1; then
   echo "    $IP 可达"
 else
   echo "    ⚠️  无法 ping 通 $IP —— 常见原因："
@@ -125,7 +129,7 @@ if [ "$MIRROR_OK" = 0 ]; then
   [ -f "$CARGO_CFG.zectrix.bak" ] && cp -f "$CARGO_CFG.zectrix.bak" "$CARGO_CFG" || rm -f "$CARGO_CFG"
 fi
 
-( cd "$SDK_DIR" && cargo build --release --locked --example watch )
+( cd "$SDK_DIR" && cargo build --release --locked --example watch --example status )
 BUILD_RC=$?
 
 # 还原用户原有的 cargo 配置
@@ -137,7 +141,38 @@ fi
 [ "$BUILD_RC" -ne 0 ] && { echo "编译失败（cargo exit ${BUILD_RC}）"; exit 1; }
 mkdir -p "$INSTALL_DIR/bin"
 install -m 755 "$SDK_DIR/target/release/examples/watch" "$INSTALL_DIR/bin/zectrix-watch"
+install -m 755 "$SDK_DIR/target/release/examples/status" "$INSTALL_DIR/bin/zectrix-status"
 WATCH_BIN="$INSTALL_DIR/bin/zectrix-watch"
+
+# 便捷命令：zectrix-report / zectrix-mcp
+cat > "$INSTALL_DIR/bin/zectrix-report" <<EOF
+#!/bin/sh
+exec "$PY" "$INSTALL_DIR/scripts/zectrix_report.py" "\$@"
+EOF
+cat > "$INSTALL_DIR/bin/zectrix-mcp" <<EOF
+#!/bin/sh
+exec "$PY" "$INSTALL_DIR/scripts/mcp_server.py" "\$@"
+EOF
+chmod +x "$INSTALL_DIR/bin/zectrix-report" "$INSTALL_DIR/bin/zectrix-mcp"
+
+# 统一的 zectrix 命令
+cat > "$INSTALL_DIR/bin/zectrix" <<EOF
+#!/bin/sh
+exec "$PY" "$INSTALL_DIR/scripts/zectrix_cli.py" "\$@"
+EOF
+chmod +x "$INSTALL_DIR/bin/zectrix"
+
+if [ -z "$IP" ]; then
+  echo "==> 自动发现设备"
+  IP="$("$PY" "$INSTALL_DIR/scripts/resolve_ip.py" --config "$INSTALL_DIR/config.txt" --bin "$INSTALL_DIR/bin/zectrix-status" 2>/dev/null | tail -1 || true)"
+  if [ -n "$IP" ]; then
+    echo "    找到设备: $IP"
+  else
+    echo "    ⚠️ 没找到设备。请确认：设备与电脑同一 Wi-Fi、已开「待机保持 Wi-Fi」。"
+    echo "       稍后可运行: $INSTALL_DIR/bin/zectrix discover"
+  fi
+  echo "IP=$IP" > "$INSTALL_DIR/config.txt"
+fi
 
 echo "==> 自检（渲染四页并校验尺寸）"
 "$PY" "$INSTALL_DIR/agent_status.py" --selftest || { echo "自检失败，已中止"; exit 1; }
@@ -203,8 +238,15 @@ echo "    已注册 LaunchAgent（自启可在「系统设置 → 通用 → 登
 
 sleep 4
 echo
-echo "✅ 完成。屏幕应显示第 1 页（概览）。"
-echo "   日志: $INSTALL_DIR/logs/watch.log"
-echo "   卸载: launchctl bootout gui/$UID_N/com.zectrix.agentstatus.watch && launchctl bootout gui/$UID_N/com.zectrix.agentstatus.daemon"
+echo "✅ 完成。屏幕应显示第 1 页（概览）"
+echo
+echo "下一步"
+echo "  看状态      $INSTALL_DIR/bin/zectrix status"
+echo "  接入助手    $INSTALL_DIR/bin/zectrix setup        （交互式，选 Hermes / Claude Code / Codex）"
+echo "  找设备 IP   $INSTALL_DIR/bin/zectrix discover"
+echo "  暂停推送    $INSTALL_DIR/bin/zectrix pause"
+echo
+echo "设备按键：↑ ↓ 翻页，中间键刷新"
+echo "日志：$INSTALL_DIR/logs/watch.log"
 echo
 echo "如提示 NoDevice：确认设备与电脑同一 Wi-Fi，且开启「待机保持 Wi-Fi」。"
