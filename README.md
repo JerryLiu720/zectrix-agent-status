@@ -43,10 +43,11 @@
 - **单实例保护**：渲染 daemon 带 pid 锁，重复启动会直接退出，避免两个进程抢设备
 - **自适应刷新节奏**：单次按键 0.5 秒后刷新（反馈快）；连按则延长到 1.2 秒，等停手再刷，避免刷新期间丢键
 - **日志轮转**：每日 04:00 自动把超过 1MB 的日志裁到最近 2000 行（`scripts/rotate_logs.sh`）
-- **页数解耦**：页数由 `pages.txt` 传递，改 `PAGES` 不需要改 Rust 代码
+- **页数解耦**：页数由 `pages.txt` 传递，改 `PAGE_KEYS` 不需要改 Rust 代码
 - **护屏节流**：翻页立即刷新；数据类变化 5 分钟最多一次；内容不变绝不重绘
 - **设备电量**：连接时与每 5 分钟读取一次，顶栏显示 24×11 圆角电池图标（按剩余电量填充）；≤20% 且未充电时图标前出现 `!`
-- **版本标记**：页脚显示 `v0.2.0`，方便反馈时对齐版本
+- **中英双语**：`config.json` 里 `"lang": "zh" | "en"` 切换界面语言（默认中文）；英文界面用完整星期名，避免 M/T 歧义
+- **版本标记**：页脚显示 `v0.3.0`，方便反馈时对齐版本
 - **零配置可试**：读不到本机助手状态时自动进入示例数据模式（页脚标注"示例数据"）
 - **十六灰阶**：中文用 Hiragino Sans GB 渲染，400×300 满屏
 - **字号规避**：Hiragino 在 12/13px 会把数字 `4` 渲染成斜杠状，项目统一避开这两个字号（仅用 10/11/14px 及以上）
@@ -105,7 +106,7 @@ cd zectrix-agent-status
 
 `install.sh` 会：装 cmake（pip，不走 brew）→ 拉取 Zectrix SDK（codeload 绕过 github.com）→ 编译 `watch` → 安装三个 LaunchAgent（渲染 daemon、设备推送、日志轮转）。
 
-编译 Rust 依赖时，脚本会依次尝试 **阿里云 → rsproxy → tuna** 三个镜像（用 `--config` 临时传入，不改你的全局 cargo 配置）；都不可用时回退官方源。设 `ZECTRIX_NO_MIRROR=1` 可强制走官方源。
+编译 Rust 依赖时，脚本会依次尝试 **阿里云 → rsproxy → tuna** 三个镜像：写入 `$CARGO_HOME/config.toml`（先备份原文件），用 `cargo fetch --locked` 实际验证，成功后编译，结束时还原你的原配置；都不可用时回退官方源。设 `ZECTRIX_NO_MIRROR=1` 可强制走官方源。
 
 ## 按键语义（重要）
 
@@ -131,7 +132,7 @@ cd zectrix-agent-status
 | 短按 ↑ / ↓ | 上一页 / 下一页 |
 | 长按 ↑ / ↓ | 无动作（长按会产生 Long 事件，为避免误跳页已禁用） |
 | 短按或长按确认 | **强制刷新**：清余额缓存、重新渲染并推送（约 1 秒） |
-| 改 `agent_status.py` 的 `PAGES` | 增删页面 |
+| 改 `agent_status.py` 的 `PAGE_KEYS` | 增删页面 |
 
 手动调试：
 
@@ -139,6 +140,7 @@ cd zectrix-agent-status
 python3 agent_status.py --page 1          # 只渲染第 2 页到 status.png
 python3 agent_status.py --selftest        # 渲染四页并校验尺寸（安装后自检）
 python3 agent_status.py --demo            # 用示例数据渲染
+python3 tests/test_wrap.py                 # 折行/清洗的回归测试
 ~/zectrix-agent-status/bin/zectrix-watch <IP> status.png gray16
 ```
 
@@ -151,6 +153,7 @@ python3 agent_status.py --demo            # 用示例数据渲染
 | `source` | `hermes` / `json` | `hermes`＝读本机 Hermes 数据；`json`＝读任意助手写的统计文件 |
 | `assistant_name` | 字符串 | 顶栏显示的名字，默认 `HERMES` |
 | `stats_file` | 路径 | `source=json` 时读取的文件（支持 `~`） |
+| `lang` | `zh` / `en` | 界面语言，默认 `zh` |
 
 当 `source=json` 时，**任何助手**（Codex、Claude Code、自研 Bot…）只要定期写一个 JSON 即可，格式见 `stats.example.json`：
 

@@ -22,13 +22,76 @@ W, HT = 400, 300
 BASE = os.environ.get("ZECTRIX_BASE") or os.path.dirname(os.path.abspath(__file__))
 STATE = os.path.join(BASE, "ui_state.json")
 BAL_CACHE = os.path.join(BASE, ".balance_cache.json")
-PAGES = ["概览", "统计", "日程", "日志"]
+PAGE_KEYS = ["overview", "stats", "schedule", "log"]
 
 # ---------------- 配置：支持接入任意助手 ----------------
 CONFIG_PATH = os.path.join(BASE, "config.json")
 STATS = {}            # 外部助手提供的统计数据（source=json 时生效）
 CFG = {}              # config.json 内容
 STATS_MTIME = 0
+
+# ---------------- 多语言（config.json: "lang": "zh" | "en"） ----------------
+STRINGS = {
+    "zh": {
+        "overview": "概览", "stats": "统计", "schedule": "日程", "log": "日志",
+        "current": "当前进度", "working": "正在处理", "idle": "空闲·等待指令",
+        "turn_min": "本轮 {m} 分 {s} 秒", "turn_sec": "本轮 {s} 秒",
+        "last_reply": "上次回复 {ago}", "no_reply": "暂无回复",
+        "model": "模型", "msgs_today": "今日 {n} 条消息",
+        "spent_today": "今日花费", "since": " · {t} 起",
+        "balance": "账户余额", "min_ago": " · {n} 分钟前", "just_now": " · 刚刚",
+        "credit": "赠金 ¥{v}", "recent": "最近消息", "no_records": "暂无记录",
+        "last7": "近 7 日消息", "today_n": "今日 {n} 条", "mem": "记忆 {n}", "skills": "技能 {n}",
+        "today": "今天", "date_wd": "  {wd}", "cron": "定时任务", "none": "无",
+        "role_user": "我", "role_ai": "AI", "role_tool": "工具",
+        "paging": "↑↓ 翻页", "demo": "示例数据 · ",
+        "connected": "已连接", "disconnected": "未连接",
+        "ago_just": "刚刚", "ago_min": "{n} 分钟前", "ago_hour": "{n} 小时前", "ago_day": "{n} 天前",
+        "next_min": "{n} 分钟后", "next_hour": "{n} 小时后", "next_day": "{n} 天后",
+        "week_short": ["一", "二", "三", "四", "五", "六", "日"],
+        "week_full": ["一", "二", "三", "四", "五", "六", "日"],
+        "week_sun": ["日", "一", "二", "三", "四", "五", "六"],
+        "cron_workday": "工作日 {t}", "cron_weekday": "每周{wd} {t}",
+        "cron_monthly": "每月 {d} 日 {t}", "cron_daily": "每天 {t}",
+        "cron_every_min": "每 {n} 分钟", "cron_every_hour": "每 {n} 小时",
+        "selftest_pass": "通过", "selftest_fail": "失败",
+    },
+    "en": {
+        "overview": "Overview", "stats": "Stats", "schedule": "Schedule", "log": "Log",
+        "current": "CURRENT", "working": "Working", "idle": "Idle",
+        "turn_min": "Turn {m}m {s}s", "turn_sec": "Turn {s}s",
+        "last_reply": "Last reply {ago}", "no_reply": "No replies yet",
+        "model": "MODEL", "msgs_today": "{n} msgs today",
+        "spent_today": "TODAY SPENT", "since": " · since {t}",
+        "balance": "BALANCE", "min_ago": " · {n} min ago", "just_now": " · just now",
+        "credit": "Credit ¥{v}", "recent": "RECENT", "no_records": "No messages",
+        "last7": "Last 7 days", "today_n": "Today {n}", "mem": "Mem {n}", "skills": "Skills {n}",
+        "today": "Today", "date_wd": ", {wd}", "cron": "Cron", "none": "None",
+        "role_user": "Me", "role_ai": "AI", "role_tool": "Tool",
+        "paging": "↑↓ pages", "demo": "demo · ",
+        "connected": "Online", "disconnected": "Offline",
+        "ago_just": "just now", "ago_min": "{n} min ago", "ago_hour": "{n} h ago", "ago_day": "{n} d ago",
+        "next_min": "in {n} min", "next_hour": "in {n} h", "next_day": "in {n} d",
+        "week_short": ["M", "T", "W", "T", "F", "S", "S"],
+        "week_full": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+        "week_sun": ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+        "cron_workday": "Weekdays {t}", "cron_weekday": "{wd} {t}",
+        "cron_monthly": "Monthly on {d}, {t}", "cron_daily": "Daily {t}",
+        "cron_every_min": "every {n} min", "cron_every_hour": "every {n} h",
+        "selftest_pass": "passed", "selftest_fail": "failed",
+    },
+}
+
+def LANG():
+    lg = (CFG.get("lang") or "zh").lower()
+    return lg if lg in STRINGS else "zh"
+
+def T(key, **kw):
+    s = STRINGS[LANG()].get(key) or STRINGS["zh"].get(key, key)
+    return s.format(**kw) if kw else s
+
+def page_titles():
+    return [T(k) for k in PAGE_KEYS]
 
 def load_config():
     try:
@@ -58,7 +121,7 @@ def sget(key, default=None):
     return STATS.get(key, default)
 
 DEMO = False   # True = 当前渲染的是示例数据
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 _last_png = None   # 内容去重：没变化就不写文件，避免墨水屏频繁刷新
 
 from PIL import Image, ImageDraw, ImageFont
@@ -132,10 +195,10 @@ def link_status():
         ts = float(open(os.path.join(BASE, "conn.txt")).read().strip())
         age = time.time() - ts
         if age < 30:
-            return "已连接", True
-        return f"{int(age // 60)} 分钟前", False
+            return T("connected"), True
+        return ago(ts), False
     except Exception:
-        return "未连接", False
+        return T("disconnected"), False
 
 def last_reply():
     """最后一条助手回复（不是用户消息）"""
@@ -183,19 +246,19 @@ def cron_text(expr):
     mi, hh, dom, mon, dow = parts
     if not (mi.isdigit() and hh.isdigit()):
         if mi.startswith("*/") and hh == "*":
-            return f"每 {mi[2:]} 分钟"
+            return T("cron_every_min", n=mi[2:])
         if mi.isdigit() and hh.startswith("*/"):
-            return f"每 {hh[2:]} 小时"
+            return T("cron_every_hour", n=hh[2:])
         return expr
     t = f"{int(hh):02d}:{int(mi):02d}"
     if dow == "1-5" and dom == "*" and mon == "*":
-        return f"工作日 {t}"
+        return T("cron_workday", t=t)
     if dow.isdigit() and dom == "*" and mon == "*":
-        return f"每周{WEEK_CN[int(dow) % 7]} {t}"
+        return T("cron_weekday", wd=T("week_sun")[int(dow) % 7], t=t)
     if dom.isdigit() and dow == "*" and mon == "*":
-        return f"每月 {int(dom)} 日 {t}"
+        return T("cron_monthly", d=int(dom), t=t)
     if dom == "*" and dow == "*" and mon == "*":
-        return f"每天 {t}"
+        return T("cron_daily", t=t)
     return expr
 
 def cron_jobs():
@@ -248,12 +311,12 @@ def ago(ts):
         return "—"
     mins = int((time.time() - ts) / 60)
     if mins < 1:
-        return "刚刚"
+        return T("ago_just")
     if mins < 60:
-        return f"{mins} 分钟前"
+        return T("ago_min", n=mins)
     if mins < 1440:
-        return f"{mins // 60} 小时前"
-    return f"{mins // 1440} 天前"
+        return T("ago_hour", n=mins // 60)
+    return T("ago_day", n=mins // 1440)
 
 def fmt_next(iso):
     if not iso:
@@ -267,30 +330,10 @@ def fmt_next(iso):
     if mins < 0:
         return t.strftime("%m-%d %H:%M")
     if mins < 60:
-        return f"{mins} 分钟后"
+        return T("next_min", n=mins)
     if mins < 1440:
-        return f"{mins // 60} 小时后"
-    return f"{mins // 1440} 天后"
-
-def wrap_text(d, text, fnt, max_w, max_lines=2):
-    """按像素宽度折行，超出用省略号"""
-    lines, cur = [], ""
-    for ch in text:
-        if d.textlength(cur + ch, font=fnt) <= max_w:
-            cur += ch
-        else:
-            lines.append(cur)
-            cur = ch
-            if len(lines) == max_lines:
-                break
-    if cur and len(lines) < max_lines:
-        lines.append(cur)
-    if len(lines) == max_lines and sum(len(x) for x in lines) < len(text):
-        last = lines[-1]
-        while d.textlength(last + "…", font=fnt) > max_w and len(last) > 1:
-            last = last[:-1]
-        lines[-1] = last + "…"
-    return lines
+        return T("next_hour", n=mins // 60)
+    return T("next_day", n=mins // 1440)
 
 def today_cost(rate=7.1):
     """今日花费：优先 actual_cost_usd，否则 estimated_cost_usd（美元）"""
@@ -371,7 +414,7 @@ def is_active():
 # ---------------- 渲染 ----------------
 def render(out, page=0):
     refresh_stats()
-    page = page % len(PAGES)
+    page = page % len(PAGE_KEYS)
     img = Image.new("L", (W, HT), 255)
     d = ImageDraw.Draw(img)
 
@@ -400,7 +443,8 @@ def render(out, page=0):
 
 
     # 页标题
-    d.text((10, 40), f"{page + 1}/{len(PAGES)}  {PAGES[page]}", font=font(14), fill=90)
+    PT = page_titles()
+    d.text((10, 40), f"{page + 1}/{len(PAGE_KEYS)}  {PT[page]}", font=font(14), fill=90)
 
     # 右上角：连接状态（与页标题同一行）
     _ltxt, _lok = link_status()
@@ -434,14 +478,14 @@ def render(out, page=0):
         m = last_reply()
 
         # 当前进度（最上面）：真实租约 → 处理中 + 本轮耗时
-        d.text((16, 66), "当前进度", font=font(11), fill=125)
-        prog = "正在处理" if active else "空闲·等待指令"
+        d.text((16, 66), T("current"), font=font(11), fill=125)
+        prog = T("working") if active else T("idle")
         d.text((16, 80), prog, font=font(28), fill=0)
         if active:
             secs = int(elapsed)
-            sub = f"本轮 {secs // 60} 分 {secs % 60} 秒" if secs >= 60 else f"本轮 {secs} 秒"
+            sub = T("turn_min", m=secs // 60, s=secs % 60) if secs >= 60 else T("turn_sec", s=secs)
         else:
-            sub = f"上次回复 {ago(m['ts'])}" if m else "暂无回复"
+            sub = T("last_reply", ago=ago(m["ts"])) if m else T("no_reply")
         d.text((16, 120), sub, font=font(11, bold=False), fill=120)
 
         # 右侧：模型（小标题在上、名称放大，下方补今日消息数）
@@ -450,33 +494,33 @@ def render(out, page=0):
         while d.textlength(mdl, font=f_mdl) > 170 and len(mdl) > 4:
             mdl = mdl[:-2] + "…"
         mx = W - 16 - d.textlength(mdl, font=f_mdl)
-        d.text((mx, 64), "模型", font=f_lbl, fill=125)
+        d.text((mx, 64), T("model"), font=f_lbl, fill=125)
         d.text((mx, 82), mdl, font=f_mdl, fill=0)
-        sub = f"今日 {today_msg_count()} 条消息"
+        sub = T("msgs_today", n=today_msg_count())
         sx = min(mx, W - 16 - d.textlength(sub, font=font(11)))
         d.text((sx, 112), sub, font=font(11), fill=125)
 
         d.line([16, 138, W - 16, 138], fill=210)
 
         # 花费 / 余额
-        slab = "今日花费"
+        slab = T("spent_today")
         if since:
             midnight = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
             if since - midnight > 600:
-                slab += " · " + datetime.datetime.fromtimestamp(since).strftime("%H:%M") + " 起"
+                slab += T("since", t=datetime.datetime.fromtimestamp(since).strftime("%H:%M"))
         d.text((16, 146), slab, font=font(11, bold=False), fill=125)
         d.text((16, 162), (f"¥{cny:,.2f}" if cny is not None else "—"), font=font(29), fill=0)
 
         bx = 200
-        blabel = "账户余额"
+        blabel = T("balance")
         if bage is not None and bage >= 60:
-            blabel += f" · {int(bage // 60)} 分钟前"
+            blabel += T("min_ago", n=int(bage // 60))
         elif bage is not None:
-            blabel += " · 刚刚"
+            blabel += T("just_now")
         d.text((bx, 146), blabel, font=font(11, bold=False), fill=125)
 
         # 金额位数多时自动降字号，保证「金额 + 赠金」不重叠
-        gtxt = f"赠金 ¥{granted}"
+        gtxt = T("credit", v=granted)
         f_gift = font(10)
         w_gift = d.textlength(gtxt, font=f_gift)
         num = f"¥{bal}"
@@ -495,19 +539,23 @@ def render(out, page=0):
         d.line([16, 204, W - 16, 204], fill=210)
 
         # 最近消息（最多两行）
-        d.text((16, 210), "最近消息", font=font(10, bold=False), fill=125)
+        _rf = font(11, bold=False) if LANG() == "en" else font(10, bold=False)
+        d.text((16, 208 if LANG() == "en" else 210), T("recent"), font=_rf, fill=125)
         if m:
             body = clean_text(m["content"], 64)
-            lines = wrap_lines(d, body, 14, W - 32, 2)
-            d.text((16, 224), f"{ago(m['ts'])} · {lines[0]}", font=font(14), fill=0)
+            # 前缀与正文一起折行：否则首行按全宽折行，加上「N 分钟前 · 」后
+            # 末尾会超出 400px 被裁掉，而下一行从被裁掉的字之后开始，那些字永远看不到。
+            prefix = f"{ago(m['ts'])} · "
+            lines = wrap_lines(d, prefix + body, 14, W - 32, 2)
+            d.text((16, 224), lines[0], font=font(14), fill=0)
             if len(lines) > 1:
                 d.text((16, 242), lines[1], font=font(14), fill=0)
         else:
-            d.text((16, 224), "暂无记录", font=font(14), fill=110)
+            d.text((16, 224), T("no_records"), font=font(14), fill=110)
 
     elif page == 1:
         # 统计：近 7 日消息
-        d.text((16, 68), "近 7 日消息", font=font(14), fill=110)
+        d.text((16, 68), T("last7"), font=font(14), fill=110)
         wc = week_counts()
         RX, base_y, max_h = 22, 198, 96
         bw, gap = 36, 14
@@ -526,27 +574,27 @@ def render(out, page=0):
             d.text((x + bw / 2 - d.textlength(label, font=font(11, bold=False)) / 2, top - 15),
                    label, font=font(11, bold=False), fill=90)
         d.line([RX - 8, base_y, RX + 7 * (bw + gap) - gap + 4, base_y], fill=0, width=2)
-        for i, wd in enumerate(["一", "二", "三", "四", "五", "六", "日"]):
+        for i, wd in enumerate(T("week_short")):
             d.text((RX + i * (bw + gap) + bw / 2 - 5, base_y + 6), wd, font=font(11, bold=False), fill=120)
 
         d.line([10, 234, W - 10, 234], fill=200)
-        d.text((16, 241), f"今日 {today_msg_count()} 条", font=font(14), fill=0)
-        d.text((150, 241), f"记忆 {count_facts()}", font=font(14), fill=0)
-        d.text((276, 241), f"技能 {count_skills()}", font=font(14), fill=0)
+        d.text((16, 241), T("today_n", n=today_msg_count()), font=font(14), fill=0)
+        d.text((150, 241), T("mem", n=count_facts()), font=font(14), fill=0)
+        d.text((276, 241), T("skills", n=count_skills()), font=font(14), fill=0)
 
     elif page == 2:
         today = datetime.datetime.now()
-        wd = "一二三四五六日"[today.weekday()]
-        line("今天", today.strftime("%Y-%m-%d") + f"  周{wd}", big=True)
+        wd = T("week_full")[today.weekday()]
+        line(T("today"), today.strftime("%Y-%m-%d") + T("date_wd", wd=wd), big=True)
         jobs = cron_jobs()
         if not jobs:
-            line("定时任务", "无")
+            line(T("cron"), T("none"))
         for j in jobs[:3]:
             line(j["name"][:16], f"{fmt_next(j['next'])} · {cron_text(j['schedule'])}")
 
     else:
         for m in recent_msgs(3):
-            role = {"user": "我", "assistant": "AI", "tool": "工具"}.get(m["role"], m["role"])
+            role = {"user": T("role_user"), "assistant": T("role_ai"), "tool": T("role_tool")}.get(m["role"], m["role"])
             txt = clean_text(m["content"], 46)
             if len(txt) > 46:
                 txt = txt[:46] + "…"
@@ -554,10 +602,10 @@ def render(out, page=0):
 
     # 底栏
     d.line([10, HT - 30, W - 10, HT - 30], fill=160)
-    for i in range(len(PAGES)):
+    for i in range(len(PAGE_KEYS)):
         cx = 16 + i * 14
         d.ellipse([cx, HT - 22, cx + 7, HT - 15], fill=0 if i == page else 200)
-    hint = f"v{VERSION} · " + ("示例数据 · " if DEMO else "") + "↑↓ 翻页"
+    hint = f"v{VERSION} · " + (T("demo") if DEMO else "") + T("paging")
     hf = font(11)
     while d.textlength(hint, font=hf) > W - 90 and hf.size > 8:
         hf = font(hf.size - 1)
@@ -584,24 +632,103 @@ def clean_text(s, limit=None):
     s = re.sub(r"\s+", " ", s).strip()
     s = re.sub(r"^[-\s]+", "", s)
     if limit and len(s) > limit:
-        s = s[:limit] + "…"
+        cut = s[:limit]
+        if cut and cut[-1].isalnum():
+            j = cut.rfind(" ")
+            if j > limit * 0.6:          # 回退不要超过 40%
+                cut = cut[:j]
+        s = cut.rstrip() + "…"
     return s
 
 def wrap_lines(d, text, size, max_w, max_lines=2):
-    """按像素宽度折行，最多 max_lines 行，超出用省略号。"""
-    lines, cur = [], ""
-    for ch in text:
-        if d.textlength(cur + ch, font=font(size)) <= max_w:
-            cur += ch
-        else:
-            lines.append(cur)
-            cur = ch
-            if len(lines) == max_lines:
+    """按像素宽度折行，最多 max_lines 行，超出用省略号。
+    中文按字断行；西文优先按词断行，避免把单词从中间劈开。"""
+    f = font(size)
+
+    def tw(s):
+        return d.textlength(s, font=f)
+
+    def ell(s):
+        """收尾加省略号时保证仍不超宽（省略号本身也占宽度）"""
+        while s and tw(s + "…") > max_w:
+            s = s[:-1]
+        return (s + "…") if s else "…"
+
+    def _tokens(t):
+        """CJK 逐字成词（可任意断行）；西文按词；空白折叠成一个。"""
+        out, buf = [], ""
+        for ch in t or "":
+            o = ord(ch)
+            cjk = (0x4E00 <= o <= 0x9FFF or 0x3400 <= o <= 0x4DBF
+                   or 0x3000 <= o <= 0x303F or 0xFF00 <= o <= 0xFFEF)
+            if ch.isspace():
+                if buf:
+                    out.append(buf); buf = ""
+                if not out or out[-1] != " ":
+                    out.append(" ")
+            elif cjk:
+                if buf:
+                    out.append(buf); buf = ""
+                out.append(ch)
+            else:
+                buf += ch
+        if buf:
+            out.append(buf)
+        return out
+
+    tokens = _tokens(text)
+    lines, cur, truncated = [], "", False
+
+    for i, tok in enumerate(tokens):
+        if tw(cur + tok) <= max_w:
+            cur += tok
+            continue
+        if tok.isspace():
+            if cur.strip():
+                lines.append(cur.rstrip())
+                cur = ""
+                if len(lines) >= max_lines and i < len(tokens) - 1:
+                    truncated = True
+                    break
+            continue
+        if cur.strip():
+            lines.append(cur.rstrip())
+            cur = ""
+            if len(lines) >= max_lines:
+                truncated = True
                 break
-    if cur and len(lines) < max_lines:
-        lines.append(cur)
-    elif cur and lines:
-        lines[-1] = lines[-1][:-1] + "…"
+        # 单个词比整行还宽 → 退化为按字符切
+        rest = tok
+        while rest:
+            piece = ""
+            for ch in rest:
+                if tw(piece + ch) <= max_w:
+                    piece += ch
+                else:
+                    break
+            if not piece:                 # 极端窄，兜底一个字符
+                piece, rest = rest[:1], rest[1:]
+            else:
+                rest = rest[len(piece):]
+            if rest:
+                lines.append(piece)
+                if len(lines) >= max_lines:
+                    truncated = True
+                    break
+            else:
+                cur = piece
+        if truncated:
+            break
+
+    if cur.strip():
+        if len(lines) < max_lines:
+            lines.append(cur.rstrip())
+        else:
+            truncated = True
+
+    lines = lines[:max_lines]
+    if truncated and lines:
+        lines[-1] = ell(lines[-1])
     return lines or [""]
 
 def enable_demo():
@@ -625,7 +752,7 @@ def enable_demo():
     ]
     last_reply = lambda: {"role": "assistant", "content": "已经把最近 7 天的对话整理成摘要，放在第 2 页。", "ts": now - 95}
     today_msg_count = lambda: 274
-    link_status = lambda: ("已连接", True)
+    link_status = lambda: (T("connected"), True)
     turn_state = lambda: (True, 42.0)
     recent_msgs = lambda n=3: [
         {"role": "assistant", "content": "已经把最近 7 天的对话整理成摘要。", "ts": now - 95},
@@ -639,8 +766,8 @@ def read_page():
     for path, kind in [(os.path.join(BASE, "ui_state.txt"), "txt"), (STATE, "json")]:
         try:
             if kind == "txt":
-                return int(open(path).read().strip()) % len(PAGES)
-            return int(json.load(open(path)).get("page", 0)) % len(PAGES)
+                return int(open(path).read().strip()) % len(PAGE_KEYS)
+            return int(json.load(open(path)).get("page", 0)) % len(PAGE_KEYS)
         except Exception:
             continue
     return 0
@@ -677,14 +804,14 @@ if __name__ == "__main__":
     if a.selftest:
         import tempfile
         ok = True
-        for i in range(len(PAGES)):
+        for i in range(len(PAGE_KEYS)):
             out = os.path.join(tempfile.gettempdir(), f"zectrix_selftest_{i}.png")
             render(out, i)
             with Image.open(out) as im:
                 good = im.size == (W, HT)
             ok = ok and good and os.path.getsize(out) > 1000
-            print(f"  page {i+1} {PAGES[i]}: {'OK' if good else 'FAIL'} ({os.path.getsize(out)} B)")
-        print("selftest", "通过" if ok else "失败")
+            print(f"  page {i+1} {page_titles()[i]}: {'OK' if good else 'FAIL'} ({os.path.getsize(out)} B)")
+        print("selftest", T("selftest_pass") if ok else T("selftest_fail"))
         raise SystemExit(0 if ok else 1)
 
     if a.daemon:
@@ -705,7 +832,7 @@ if __name__ == "__main__":
                         globals()["_last_png"] = None      # 绕过内容去重
                         print("强制刷新：已清缓存，重绘中", flush=True)
                     open(os.path.join(BASE, "active.txt"), "w").write("1" if turn_state()[0] else "0")
-                    open(os.path.join(BASE, "pages.txt"), "w").write(str(len(PAGES)))
+                    open(os.path.join(BASE, "pages.txt"), "w").write(str(len(PAGE_KEYS)))
                 except Exception:
                     pass
                 render(a.out, read_page() if a.page is None else a.page)
