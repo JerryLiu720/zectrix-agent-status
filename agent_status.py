@@ -58,7 +58,7 @@ STRINGS = {
         "cron_monthly": "每月 {d} 日 {t}", "cron_daily": "每天 {t}",
         "cron_every_min": "每 {n} 分钟", "cron_every_hour": "每 {n} 小时",
         "selftest_pass": "通过", "selftest_fail": "失败",
-        "notice": "通知", "low_balance": "! 余额偏低 ¥{v}",
+        "notice": "通知", "low_balance": "! 余额偏低 ¥{v}", "src_stale": "数据源 {n} 分钟未更新",
         "agent_working": "{label} · 正在处理", "agent_done": "{label} · {ago}完成",
     },
     "en": {
@@ -84,7 +84,7 @@ STRINGS = {
         "cron_monthly": "Monthly on {d}, {t}", "cron_daily": "Daily {t}",
         "cron_every_min": "every {n} min", "cron_every_hour": "every {n} h",
         "selftest_pass": "passed", "selftest_fail": "failed",
-        "notice": "NOTICE", "low_balance": "! Low balance ¥{v}",
+        "notice": "NOTICE", "low_balance": "! Low balance ¥{v}", "src_stale": "Source idle {n} min",
         "agent_working": "{label} · working", "agent_done": "{label} · done {ago}",
     },
 }
@@ -123,10 +123,12 @@ def _json_sources(cfg):
     return out
 
 def assistant_label():
-    """顶栏名字：配置优先，其次是主数据源的 label。"""
+    """顶栏名字：配置优先；否则按主源决定。"""
     name = CFG.get("assistant_name")
     if name:
         return str(name)
+    if PRIMARY == "hermes":
+        return "HERMES"
     for s in (CFG.get("sources") or []):
         if (s or {}).get("path"):
             return str(s.get("label") or "AGENT")
@@ -200,6 +202,30 @@ def font(sz, bold=True):
 
 def db(path):
     return sqlite3.connect(path)
+
+def multi_source_label():
+    """配置了 2 个以上数据源时，返回主源名字；单源返回空串。"""
+    srcs = CFG.get("sources") or []
+    if len(srcs) < 2:
+        return ""
+    if PRIMARY == "hermes":
+        return "Hermes"
+    return str((srcs[0] or {}).get("label") or "Agent")
+
+def source_age():
+    """主源最后一次写入距今秒数。"""
+    ts = []
+    if PRIMARY == "hermes":
+        p = os.path.join(H, "state.db")
+        if os.path.exists(p):
+            ts.append(os.path.getmtime(p))
+    else:
+        for s in SOURCES[:1]:
+            try:
+                ts.append(os.path.getmtime(s["path"]))
+            except Exception:
+                pass
+    return (time.time() - max(ts)) if ts else None
 
 def model_name():
     v = sget("model")
@@ -591,7 +617,11 @@ def render(out, page=0):
 
     # 页标题
     PT = page_titles()
-    d.text((10, 40), f"{page + 1}/{len(PAGE_KEYS)}  {PT[page]}", font=font(14), fill=90)
+    _ttl = f"{page + 1}/{len(PAGE_KEYS)}  {PT[page]}"
+    _pl = multi_source_label()
+    if _pl:
+        _ttl += f" · {_pl}"
+    d.text((10, 40), _ttl, font=font(14), fill=90)
 
     # 右上角：连接状态（与页标题同一行）
     _ltxt, _lok = link_status()
@@ -623,6 +653,7 @@ def render(out, page=0):
         bal, granted, bage = balance()
         cny, since = daily_spend(bal)
         m = last_reply()
+        age = source_age()
 
         # 当前进度（最上面）：真实租约 → 处理中 + 本轮耗时
         d.text((16, 66), T("current"), font=font(11), fill=125)
@@ -640,6 +671,8 @@ def render(out, page=0):
             d.text((16, 118), al, font=font(12), fill=0)
         elif busy:
             d.text((16, 118), T("agent_working", label=busy["label"]), font=font(12), fill=0)
+        elif age is not None and age > 900 and not active:
+            d.text((16, 118), T("src_stale", n=int(age // 60)), font=font(12), fill=0)
         else:
             d.text((16, 120), sub, font=font(11, bold=False), fill=120)
 

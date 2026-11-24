@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-watch:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            sdk/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('examples/watch.rs') }}
+
+      - name: Fetch Zectrix SDK
+        run: git clone --depth 1 https://github.com/itopinion/zectrix-local-push-sdk sdk
+
+      - name: Build watch + status
+        run: |
+          cp examples/watch.rs sdk/examples/watch.rs
+          cd sdk
+          cargo build --release --example watch --example status
+
+      - name: Collect binaries
+        run: |
+          mkdir -p out
+          cp sdk/target/release/examples/watch out/zectrix-watch-macos-arm64
+          cp sdk/target/release/examples/status out/zectrix-status-macos-arm64
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          fail_on_unmatched_files: true

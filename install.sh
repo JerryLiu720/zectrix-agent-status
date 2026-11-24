@@ -69,6 +69,19 @@ chmod +x "$INSTALL_DIR"/scripts/* 2>/dev/null || true
 echo 0 > "$INSTALL_DIR/ui_state.txt"
 echo "IP=$IP" > "$INSTALL_DIR/config.txt"
 
+# 优先用 release 里的预编译二进制（免装 Rust，约 10 秒完成）
+PREBUILT=""
+REL_URL="https://github.com/JerryLiu720/zectrix-agent-status/releases/latest/download"
+mkdir -p "$INSTALL_DIR/bin"
+if curl -fsSL --max-time 30 "$REL_URL/zectrix-watch-macos-arm64" -o "$INSTALL_DIR/bin/zectrix-watch" 2>/dev/null \
+   && curl -fsSL --max-time 30 "$REL_URL/zectrix-status-macos-arm64" -o "$INSTALL_DIR/bin/zectrix-status" 2>/dev/null; then
+  chmod +x "$INSTALL_DIR/bin/zectrix-watch" "$INSTALL_DIR/bin/zectrix-status"
+  PREBUILT=1
+  echo "==> [3-4/6] 使用预编译二进制（跳过 SDK 下载与 Rust 编译）"
+  WATCH_BIN="$INSTALL_DIR/bin/zectrix-watch"
+fi
+
+if [ -z "$PREBUILT" ]; then
 echo "==> [3/6] 获取 Zectrix SDK（github.com 不通时走 codeload）"
 if [ ! -d "$SDK_DIR" ]; then
   TMPZ="$INSTALL_DIR/sdk.zip"
@@ -143,6 +156,7 @@ mkdir -p "$INSTALL_DIR/bin"
 install -m 755 "$SDK_DIR/target/release/examples/watch" "$INSTALL_DIR/bin/zectrix-watch"
 install -m 755 "$SDK_DIR/target/release/examples/status" "$INSTALL_DIR/bin/zectrix-status"
 WATCH_BIN="$INSTALL_DIR/bin/zectrix-watch"
+fi
 
 # 便捷命令：zectrix-report / zectrix-mcp
 cat > "$INSTALL_DIR/bin/zectrix-report" <<EOF
