@@ -183,7 +183,7 @@ def sget(key, default=None):
     return STATS.get(key, default)
 
 DEMO = False   # True = 当前渲染的是示例数据
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 _last_png = None   # 内容去重：没变化就不写文件，避免墨水屏频繁刷新
 
 from PIL import Image, ImageDraw, ImageFont
