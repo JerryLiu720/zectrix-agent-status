@@ -192,7 +192,11 @@ from PIL import Image, ImageDraw, ImageFont
 def font(sz, bold=True):
     # 实测：PingFang.ttc 在本机 Pillow 下 "cannot open resource"，必须用 Hiragino
     for p, idx in [("/System/Library/Fonts/Hiragino Sans GB.ttc", 0),
-                   ("/System/Library/Fonts/STHeiti Light.ttc", 0)]:
+                   ("/System/Library/Fonts/STHeiti Light.ttc", 0),
+                   # Linux（CI / 服务器）
+                   ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 0),
+                   ("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc", 0),
+                   ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 0)]:
         if os.path.exists(p):
             try:
                 return ImageFont.truetype(p, sz, index=idx)
